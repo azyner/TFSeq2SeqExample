@@ -1,0 +1,195 @@
+import tensorflow as tf
+import numpy as np
+import random
+from six.moves import xrange  # pylint: disable=redefined-builtin
+
+class Seq2SeqModel(object):
+
+    def __init__(self, parameters, generate):
+        max_gradient_norm = 5.0
+        size = 10
+        num_layers = 2
+        dtype = tf.float32
+        batch_size = 17
+
+        #TODO
+        #killall:
+        # buckets - used for different length strings, sort into buckets to minimize badding but keep enough for a batch
+        # output_projection - used to project from a smaller word2vec to a full vocab vector. Useless here
+        #
+        #Understand:
+        #forward only. What is forward only? Data use? Should I disable during training, and enable during validation/generation?
+
+
+        #define layers here
+        #input, linear RNN RNN linear etc
+
+        single_cell = tf.nn.rnn_cell.BasicLSTMCell(size)
+        cell = single_cell
+        if num_layers > 1:
+          cell = tf.nn.rnn_cell.MultiRNNCell([single_cell] * num_layers)
+        # The seq2seq function: we use embedding for the input and attention.
+        def seq2seq_f(encoder_inputs, decoder_inputs, do_decode):
+            return tf.nn.seq2seq.basic_rnn_seq2seq(encoder_inputs,decoder_inputs,cell,dtype=dtype)
+            #basic_rnn_seq2seq returns rnn_decoder returns output, state
+            #there is no loss function here
+          # return tf.nn.seq2seq.embedding_attention_seq2seq(
+          #     encoder_inputs,
+          #     decoder_inputs,
+          #     cell,
+          #     num_encoder_symbols=source_vocab_size,
+          #     num_decoder_symbols=target_vocab_size,
+          #     embedding_size=size,
+          #     output_projection=output_projection,
+          #     feed_previous=do_decode,
+          #     dtype=dtype)
+
+        # Feeds for input - no longer a list of buckets, just one will do.
+            #NOTE Weights:
+                #This is a list of weights used to determine the most important (favourable?) output. It weights the loss function
+                #Used in sequence_loss_by_example.
+        #NOTE - DECODERS:
+            # They are the correct prediction path. Useful to correct errors in training
+            # Need to do more research in the architecture here
+
+        self.encoder_input = tf.placeholder(tf.int32, shape=[batch_size], name="encoder")
+        self.decoder_input = tf.placeholder(tf.int32, shape=[batch_size], name="decoder")
+        self.target_weight = tf.placeholder(tf.int32, shape=[batch_size], name="target_weight")
+        self.target = tf.placeholder(tf.int32,shape=[batch_size],name="target")
+        # Our targets are decoder inputs shifted by one.
+        #Alex - True for my model as well
+        targets = [self.decoder_inputs[i + 1]
+                   for i in xrange(len(self.decoder_inputs) - 1)]
+
+        # Alex - I don't know what the difference is between forward only and not. (refactored to generate)
+        # Training outputs and losses.
+        if generate: #Test
+            self.output, self.internal_state = seq2seq_f(self.encoder_inputs, self.decoder_inputs, generate)
+        else: #Training
+            self.output, self.internal_state = seq2seq_f(self.encoder_inputs, self.decoder_inputs, generate)
+
+        def RMSE(x,y):
+            return  tf.sqrt(tf.reduce_mean(tf.square(tf.sub(y, x))))
+        weights = np.ones(len(self.target))#list of 1's the size of self.target
+
+        # TODO There are several types of cost functions to compare tracks. Implement many
+        # Mainly, average MSE over the whole track, or just at a horizon time (t+10 or something)
+        # There's this corner alg that Social LSTM refernces, but I haven't looked into it.
+
+        self.losses = tf.nn.seq2seq.sequence_loss_by_example(self.output,self.target,weights,softmax_loss_function=lambda x, y: RMSE(x,y))
+
+        # Gradients and SGD update operation for training the model.
+        params = tf.trainable_variables()
+        if not generate:
+            self.gradient_norms = []
+            self.updates = []
+            opt = tf.train.GradientDescentOptimizer(self.learning_rate)
+            gradients = tf.gradients(self.loss, params)
+            clipped_gradients, norm = tf.clip_by_global_norm(gradients, max_gradient_norm)
+
+            self.gradient_norms.append(norm)
+            self.updates.append(opt.apply_gradients(
+                zip(clipped_gradients, params), global_step=self.global_step))
+
+        self.saver = tf.train.Saver(tf.all_variables())
+
+    def get_batch(self, data):
+         batch_encoder_inputs, batch_decoder_inputs, batch_weights = [], [], []
+            encoder_size, decoder_size = #####GLOBAL TRACK INPUT AND OUTPUT SIZE
+            encoder_inputs, decoder_inputs = [], []
+
+            # Get a random batch of encoder and decoder inputs from data,
+            # pad them if needed, reverse encoder inputs and add GO to decoder.
+            for _ in xrange(self.batch_size):
+              encoder_input, decoder_input = random.choice(data)
+
+              # Encoder inputs are padded and then reversed. ### ALEX ### -- HUH? Why reversed?
+              #Language works better in reverse -- dont ask
+
+              encoder_inputs.append(encoder_input)
+
+              # Decoder inputs get an extra "GO" symbol, and are padded then.
+              decoder_pad_size = decoder_size - len(decoder_input) - 1
+              decoder_inputs.append([data_utils.GO_ID] + decoder_input +
+                                    [data_utils.PAD_ID] * decoder_pad_size)
+
+            # Batch encoder inputs are just re-indexed encoder_inputs.
+            for length_idx in xrange(encoder_size):
+              batch_encoder_inputs.append(
+                  np.array([encoder_inputs[batch_idx][length_idx]
+                            for batch_idx in xrange(self.batch_size)], dtype=np.int32))
+
+            # Batch decoder inputs are re-indexed decoder_inputs, we create weights.
+            for length_idx in xrange(decoder_size):
+              batch_decoder_inputs.append(
+                  np.array([decoder_inputs[batch_idx][length_idx]
+                            for batch_idx in xrange(self.batch_size)], dtype=np.int32))
+
+              # Create target_weights to be 0 for targets that are padding.
+              batch_weight = np.ones(self.batch_size, dtype=np.float32)
+              for batch_idx in xrange(self.batch_size):
+                # We set weight to 0 if the corresponding target is a PAD symbol.
+                # The corresponding target is decoder_input shifted by 1 forward.
+                if length_idx < decoder_size - 1:
+                  target = decoder_inputs[batch_idx][length_idx + 1]
+                if length_idx == decoder_size - 1 or target == data_utils.PAD_ID:
+                  batch_weight[batch_idx] = 0.0
+              batch_weights.append(batch_weight)
+        return batch_encoder_inputs, batch_decoder_inputs, batch_weights
+
+    def step(self, session, encoder_inputs, decoder_inputs, target_weights,
+               bucket_id, forward_only):
+        """Run a step of the model feeding the given inputs.
+        Args:
+          session: tensorflow session to use.
+          encoder_inputs: list of numpy int vectors to feed as encoder inputs.
+          decoder_inputs: list of numpy int vectors to feed as decoder inputs.
+          target_weights: list of numpy float vectors to feed as target weights.
+          bucket_id: which bucket of the model to use.
+          forward_only: whether to do the backward step or only forward.
+        Returns:
+          A triple consisting of gradient norm (or None if we did not do backward),
+          average perplexity, and the outputs.
+        Raises:
+          ValueError: if length of encoder_inputs, decoder_inputs, or
+            target_weights disagrees with bucket size for the specified bucket_id.
+        """
+        # Check if the sizes match.
+        encoder_size, decoder_size = self.buckets[bucket_id]
+        if len(encoder_inputs) != encoder_size:
+          raise ValueError("Encoder length must be equal to the one in bucket,"
+                           " %d != %d." % (len(encoder_inputs), encoder_size))
+        if len(decoder_inputs) != decoder_size:
+          raise ValueError("Decoder length must be equal to the one in bucket,"
+                           " %d != %d." % (len(decoder_inputs), decoder_size))
+        if len(target_weights) != decoder_size:
+          raise ValueError("Weights length must be equal to the one in bucket,"
+                           " %d != %d." % (len(target_weights), decoder_size))
+
+        # Input feed: encoder inputs, decoder inputs, target_weights, as provided.
+        input_feed = {}
+        for l in xrange(encoder_size):
+          input_feed[self.encoder_inputs[l].name] = encoder_inputs[l]
+        for l in xrange(decoder_size):
+          input_feed[self.decoder_inputs[l].name] = decoder_inputs[l]
+          input_feed[self.target_weights[l].name] = target_weights[l]
+
+        # Since our targets are decoder inputs shifted by one, we need one more.
+        last_target = self.decoder_inputs[decoder_size].name
+        input_feed[last_target] = np.zeros([self.batch_size], dtype=np.int32)
+
+        # Output feed: depends on whether we do a backward step or not.
+        if not forward_only:
+          output_feed = [self.updates,  # Update Op that does SGD.
+                         self.gradient_norms,  # Gradient norm.
+                         self.losses]  # Loss for this batch.
+        else:
+          output_feed = [self.losses]  # Loss for this batch.
+          for l in xrange(decoder_size):  # Output logits.
+            output_feed.append(self.outputs[bucket_id][l])
+
+        outputs = session.run(output_feed, input_feed)
+        if not forward_only:
+          return outputs[1], outputs[2], None  # Gradient norm, loss, no outputs.
+        else:
+          return None, outputs[0], outputs[1:]  # No gradient norm, loss, outputs.
