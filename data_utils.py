@@ -7,10 +7,10 @@ _GO = 999
 #_UNK = b"_UNK"
 #_START_VOCAB = [_PAD, _GO, _EOS, _UNK]
 
-PAD_ID = 0
-GO_ID = 1
-EOS_ID = 2
-UNK_ID = 3
+PAD_ID = 0.0
+GO_ID = 0.0
+EOS_ID = 2.0
+UNK_ID = 3.0
 
 
 import numpy as np

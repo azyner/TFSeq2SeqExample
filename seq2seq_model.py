@@ -146,7 +146,10 @@ class Seq2SeqModel(object):
           encoder_inputs.append(encoder_input)
 
           # Decoder inputs get an extra "GO" symbol
-          decoder_inputs.append([data_utils.GO_ID] + decoder_input)
+          #The fact that decoder input is a ndarray and not a list breaks this operator (+) I have chosen this re-cast to better match the original code
+          decoder_inputs.append([[data_utils.GO_ID]*self.input_size] + decoder_input.tolist())
+
+
 
         # Batch encoder inputs are just re-indexed encoder_inputs.
         #TODO Alex -- how are the data re-indexed? This is convoluted and not commented
@@ -168,15 +171,24 @@ class Seq2SeqModel(object):
 
         #TODO Alex - Look at the shape of batch_weights. It appears I do need to re-format the encoder and decoder inputs
         #to make an encoder_steps long list of shape [batch input_size]
+        #currently it is a list of length batch containing shape [timesteps input_size]
+        #batch_encoder_inputs = encoder_inputs
+        for length_idx in xrange(self.encoder_steps):
+            batch_encoder_inputs.append(
+                    np.array([encoder_inputs[batch_idx][length_idx]
+                    for batch_idx in xrange(self.batch_size)], dtype=np.float32))
 
-        batch_encoder_inputs = encoder_inputs
 
         # Batch decoder inputs are re-indexed decoder_inputs, we create weights.
-        batch_decoder_inputs = decoder_inputs
+        #batch_decoder_inputs = decoder_inputs
 
 
 
         for length_idx in xrange(self.decoder_steps+1): # +1 for go symbol
+            batch_decoder_inputs.append(
+                    np.array([decoder_inputs[batch_idx][length_idx]
+                    for batch_idx in xrange(self.batch_size)], dtype=np.float32))
+
             # Create target_weights to be 0 for targets that are padding.
             batch_weight = np.ones(self.batch_size, dtype=np.float32)
             for batch_idx in xrange(self.batch_size):
@@ -185,6 +197,8 @@ class Seq2SeqModel(object):
                 if length_idx == self.decoder_steps:
                   batch_weight[batch_idx] = 0.0
             batch_weights.append(batch_weight)
+
+        #batch_encoder_inputs is now list of len encoder_steps, shape batch, input_size. Similarly with decoder_inputs
         return batch_encoder_inputs, batch_decoder_inputs, batch_weights
 
     def step(self, session, encoder_inputs, decoder_inputs, target_weights,
