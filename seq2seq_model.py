@@ -2,6 +2,7 @@ import tensorflow as tf
 import numpy as np
 import random
 from six.moves import xrange  # pylint: disable=redefined-builtin
+import data_utils
 
 class Seq2SeqModel(object):
 
@@ -130,7 +131,7 @@ class Seq2SeqModel(object):
         # pad them if needed, reverse encoder inputs and add GO to decoder.
         for _ in xrange(self.batch_size):
           #encoder_input, decoder_input = random.choice()
-          index = random.randrange(encoder_data.shape(0))
+          index = random.randrange(encoder_data.shape[0])
           encoder_input = encoder_data[index]
           decoder_input = decoder_data[index]
 
@@ -150,32 +151,44 @@ class Seq2SeqModel(object):
         # Batch encoder inputs are just re-indexed encoder_inputs.
         #TODO Alex -- how are the data re-indexed? This is convoluted and not commented
         #It appears to be an unroll of the batch, does it swap axes?
-        
-        for length_idx in xrange(len(encoder_inputs)):
-          batch_encoder_inputs.append(
-              np.array([encoder_inputs[batch_idx][length_idx]
-                        for batch_idx in xrange(self.batch_size)], dtype=np.int32))
+
+        #This would be easier if I can actually see the code run, and not waste time downloading 8gb of text corpus
+
+        #Looking at the input to step, I can determine the following:
+            #it is a list of input to encoder
+            #I would suggest it is in the same format as I have it currently:
+            # shape batch_size encoder_size input_size
+        #so the following should occur:
+        #Pick a track at random
+        #Do padding as necessary (GO symbol, mostly)
+        #create weights of all one except last
+        #append and repeat batch_size times
+
+        #Here encoder_inputs is a list of batch long containing arrays of shape [encoder_steps input_size]
+
+        #TODO Alex - Look at the shape of batch_weights. It appears I do need to re-format the encoder and decoder inputs
+        #to make an encoder_steps long list of shape [batch input_size]
+
+        batch_encoder_inputs = encoder_inputs
 
         # Batch decoder inputs are re-indexed decoder_inputs, we create weights.
-        for length_idx in xrange(decoder_size):
-          batch_decoder_inputs.append(
-              np.array([decoder_inputs[batch_idx][length_idx]
-                        for batch_idx in xrange(self.batch_size)], dtype=np.int32))
+        batch_decoder_inputs = decoder_inputs
 
-          # Create target_weights to be 0 for targets that are padding.
-          batch_weight = np.ones(self.batch_size, dtype=np.float32)
-          for batch_idx in xrange(self.batch_size):
+
+
+        for length_idx in xrange(self.decoder_steps+1): # +1 for go symbol
+            # Create target_weights to be 0 for targets that are padding.
+            batch_weight = np.ones(self.batch_size, dtype=np.float32)
+            for batch_idx in xrange(self.batch_size):
             # We set weight to 0 if the corresponding target is a PAD symbol.
             # The corresponding target is decoder_input shifted by 1 forward.
-            if length_idx < decoder_size - 1:
-              target = decoder_inputs[batch_idx][length_idx + 1]
-            if length_idx == decoder_size - 1 or target == data_utils.PAD_ID:
-              batch_weight[batch_idx] = 0.0
-          batch_weights.append(batch_weight)
+                if length_idx == self.decoder_steps:
+                  batch_weight[batch_idx] = 0.0
+            batch_weights.append(batch_weight)
         return batch_encoder_inputs, batch_decoder_inputs, batch_weights
 
     def step(self, session, encoder_inputs, decoder_inputs, target_weights,
-               bucket_id, forward_only):
+             bucket_id, generate):
         """Run a step of the model feeding the given inputs.
         Args:
           session: tensorflow session to use.
@@ -183,7 +196,7 @@ class Seq2SeqModel(object):
           decoder_inputs: list of numpy int vectors to feed as decoder inputs.
           target_weights: list of numpy float vectors to feed as target weights.
           bucket_id: which bucket of the model to use.
-          forward_only: whether to do the backward step or only forward.
+          generate: whether to do the backward step or only forward.
         Returns:
           A triple consisting of gradient norm (or None if we did not do backward),
           average perplexity, and the outputs.
@@ -216,7 +229,7 @@ class Seq2SeqModel(object):
         input_feed[last_target] = np.zeros([self.batch_size], dtype=np.int32)
 
         # Output feed: depends on whether we do a backward step or not.
-        if not forward_only:
+        if not generate:
           output_feed = [self.updates,  # Update Op that does SGD.
                          self.gradient_norms,  # Gradient norm.
                          self.losses]  # Loss for this batch.
@@ -226,7 +239,7 @@ class Seq2SeqModel(object):
             output_feed.append(self.outputs[bucket_id][l])
 
         outputs = session.run(output_feed, input_feed)
-        if not forward_only:
+        if not generate:
           return outputs[1], outputs[2], None  # Gradient norm, loss, no outputs.
         else:
           return None, outputs[0], outputs[1:]  # No gradient norm, loss, outputs.
