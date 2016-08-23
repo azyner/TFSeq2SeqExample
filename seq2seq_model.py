@@ -5,12 +5,15 @@ from six.moves import xrange  # pylint: disable=redefined-builtin
 
 class Seq2SeqModel(object):
 
-    def __init__(self, parameters, generate):
+    def __init__(self, parameters, generate, encoder_steps, decoder_steps, batch_size):
         max_gradient_norm = 5.0
-        size = 10
-        num_layers = 2
+        size = 11
+        num_layers = 3
         dtype = tf.float32
-        batch_size = 17
+        self.batch_size = batch_size
+        self.input_size = 1
+        self.encoder_steps = encoder_steps
+        self.decoder_steps = decoder_steps
 
         #TODO
         #killall:
@@ -28,6 +31,7 @@ class Seq2SeqModel(object):
         cell = single_cell
         if num_layers > 1:
           cell = tf.nn.rnn_cell.MultiRNNCell([single_cell] * num_layers)
+
         # The seq2seq function: we use embedding for the input and attention.
         def seq2seq_f(encoder_inputs, decoder_inputs, do_decode):
             return tf.nn.seq2seq.basic_rnn_seq2seq(encoder_inputs,decoder_inputs,cell,dtype=dtype)
@@ -52,31 +56,53 @@ class Seq2SeqModel(object):
             # They are the correct prediction path. Useful to correct errors in training
             # Need to do more research in the architecture here
 
-        self.encoder_input = tf.placeholder(tf.int32, shape=[batch_size], name="encoder")
-        self.decoder_input = tf.placeholder(tf.int32, shape=[batch_size], name="decoder")
-        self.target_weight = tf.placeholder(tf.int32, shape=[batch_size], name="target_weight")
-        self.target = tf.placeholder(tf.int32,shape=[batch_size],name="target")
-        # Our targets are decoder inputs shifted by one.
-        #Alex - True for my model as well
-        targets = [self.decoder_inputs[i + 1]
-                   for i in xrange(len(self.decoder_inputs) - 1)]
+        # Feeds for inputs.
+        self.encoder_inputs = []
+        self.decoder_inputs = []
+        self.target_weights = []
+        for i in xrange(self.encoder_steps):  # Last bucket is the biggest one.
+            self.encoder_inputs.append(tf.placeholder(tf.float32, shape=[batch_size, 1],
+                                                    name="encoder{0}".format(i)))
+        #for i in xrange(self.decoder_steps + 1):
+        for i in xrange(self.decoder_steps):
+            self.decoder_inputs.append(tf.placeholder(tf.float32, shape=[batch_size, 1],
+                                                    name="decoder{0}".format(i)))
+            self.target_weights.append(tf.placeholder(dtype, shape=[batch_size],
+                                                    name="weight{0}".format(i)))
 
+
+        #self.target = tf.placeholder(tf.float32,shape=[batch_size, self.input_size],name="target")
+
+        # Our targets are decoder inputs shifted by one.
+        #TODO Alex Double check this
+        #PLACEHOLDER HACK - because I don't believe <go> or <eos> symbols belong in time series data, I am repeating the
+        #last decoder input for the target until I replace it with something better.
+        #I think the correct solution here is to actually capture the last ignored output, and use it as the first decoder symbol
+        #instead of the <go> symbol.
+        #I'm not sure I'm allowed to tie the unused output to the decoder feed, so I'm doing this for now.
+
+        targets = [self.decoder_inputs[i + 1]
+                    for i in xrange(len(self.decoder_inputs) - 1)]
+        #targets.append(tf.placeholder(tf.float32, shape=[batch_size, 1], name="decoder{0}".format(self.decoder_steps+1)))
+        targets.append(self.decoder_inputs[len(self.decoder_inputs)-1])
         # Alex - I don't know what the difference is between forward only and not. (refactored to generate)
         # Training outputs and losses.
+        #seq2seq_f: encoder_inputs is a LIST of 2D tensors of size [batch x input_size]
+        #The comments on seq2seq seem to imply that the list should be timesteps long
         if generate: #Test
-            self.output, self.internal_state = seq2seq_f(self.encoder_inputs, self.decoder_inputs, generate)
+            self.outputs, self.internal_states = seq2seq_f(self.encoder_inputs, self.decoder_inputs, generate)
         else: #Training
-            self.output, self.internal_state = seq2seq_f(self.encoder_inputs, self.decoder_inputs, generate)
+            self.outputs, self.internal_states = seq2seq_f(self.encoder_inputs, self.decoder_inputs, generate)
 
         def RMSE(x,y):
             return  tf.sqrt(tf.reduce_mean(tf.square(tf.sub(y, x))))
-        weights = np.ones(len(self.target))#list of 1's the size of self.target
+        #weights = np.ones(len(self.target))#list of 1's the size of self.target
 
         # TODO There are several types of cost functions to compare tracks. Implement many
         # Mainly, average MSE over the whole track, or just at a horizon time (t+10 or something)
         # There's this corner alg that Social LSTM refernces, but I haven't looked into it.
 
-        self.losses = tf.nn.seq2seq.sequence_loss_by_example(self.output,self.target,weights,softmax_loss_function=lambda x, y: RMSE(x,y))
+        self.losses = tf.nn.seq2seq.sequence_loss_by_example(self.outputs,targets,self.target_weights,softmax_loss_function=lambda x, y: RMSE(x,y))
 
         # Gradients and SGD update operation for training the model.
         params = tf.trainable_variables()
@@ -93,48 +119,50 @@ class Seq2SeqModel(object):
 
         self.saver = tf.train.Saver(tf.all_variables())
 
-    def get_batch(self, data):
-         batch_encoder_inputs, batch_decoder_inputs, batch_weights = [], [], []
-            encoder_size, decoder_size = #####GLOBAL TRACK INPUT AND OUTPUT SIZE
-            encoder_inputs, decoder_inputs = [], []
+    def get_batch(self, encoder_data, decoder_data):
+        #This whole function just collects random pairs of encoder/decoder from data and adds them into a batch
+        #This is where the target weight is created, it is zero for padding, 1 for everything else
+        batch_encoder_inputs, batch_decoder_inputs, batch_weights = [], [], []
+            #encoder_size, decoder_size = #####GLOBAL TRACK INPUT AND OUTPUT SIZE
+        encoder_inputs, decoder_inputs = [], []
 
-            # Get a random batch of encoder and decoder inputs from data,
-            # pad them if needed, reverse encoder inputs and add GO to decoder.
-            for _ in xrange(self.batch_size):
-              encoder_input, decoder_input = random.choice(data)
+        # Get a random batch of encoder and decoder inputs from data,
+        # pad them if needed, reverse encoder inputs and add GO to decoder.
+        for _ in xrange(self.batch_size):
+          encoder_input, decoder_input = random.choice()
 
-              # Encoder inputs are padded and then reversed. ### ALEX ### -- HUH? Why reversed?
-              #Language works better in reverse -- dont ask
+          # Encoder inputs are padded and then reversed. ### ALEX ### -- HUH? Why reversed?
+          #Language works better in reverse -- dont ask
 
-              encoder_inputs.append(encoder_input)
+          encoder_inputs.append(encoder_input)
 
-              # Decoder inputs get an extra "GO" symbol, and are padded then.
-              decoder_pad_size = decoder_size - len(decoder_input) - 1
-              decoder_inputs.append([data_utils.GO_ID] + decoder_input +
-                                    [data_utils.PAD_ID] * decoder_pad_size)
+          # Decoder inputs get an extra "GO" symbol, and are padded then.
+          decoder_pad_size = decoder_size - len(decoder_input) - 1
+          decoder_inputs.append([data_utils.GO_ID] + decoder_input +
+                                [data_utils.PAD_ID] * decoder_pad_size)
 
-            # Batch encoder inputs are just re-indexed encoder_inputs.
-            for length_idx in xrange(encoder_size):
-              batch_encoder_inputs.append(
-                  np.array([encoder_inputs[batch_idx][length_idx]
-                            for batch_idx in xrange(self.batch_size)], dtype=np.int32))
+        # Batch encoder inputs are just re-indexed encoder_inputs.
+        for length_idx in xrange(encoder_size):
+          batch_encoder_inputs.append(
+              np.array([encoder_inputs[batch_idx][length_idx]
+                        for batch_idx in xrange(self.batch_size)], dtype=np.int32))
 
-            # Batch decoder inputs are re-indexed decoder_inputs, we create weights.
-            for length_idx in xrange(decoder_size):
-              batch_decoder_inputs.append(
-                  np.array([decoder_inputs[batch_idx][length_idx]
-                            for batch_idx in xrange(self.batch_size)], dtype=np.int32))
+        # Batch decoder inputs are re-indexed decoder_inputs, we create weights.
+        for length_idx in xrange(decoder_size):
+          batch_decoder_inputs.append(
+              np.array([decoder_inputs[batch_idx][length_idx]
+                        for batch_idx in xrange(self.batch_size)], dtype=np.int32))
 
-              # Create target_weights to be 0 for targets that are padding.
-              batch_weight = np.ones(self.batch_size, dtype=np.float32)
-              for batch_idx in xrange(self.batch_size):
-                # We set weight to 0 if the corresponding target is a PAD symbol.
-                # The corresponding target is decoder_input shifted by 1 forward.
-                if length_idx < decoder_size - 1:
-                  target = decoder_inputs[batch_idx][length_idx + 1]
-                if length_idx == decoder_size - 1 or target == data_utils.PAD_ID:
-                  batch_weight[batch_idx] = 0.0
-              batch_weights.append(batch_weight)
+          # Create target_weights to be 0 for targets that are padding.
+          batch_weight = np.ones(self.batch_size, dtype=np.float32)
+          for batch_idx in xrange(self.batch_size):
+            # We set weight to 0 if the corresponding target is a PAD symbol.
+            # The corresponding target is decoder_input shifted by 1 forward.
+            if length_idx < decoder_size - 1:
+              target = decoder_inputs[batch_idx][length_idx + 1]
+            if length_idx == decoder_size - 1 or target == data_utils.PAD_ID:
+              batch_weight[batch_idx] = 0.0
+          batch_weights.append(batch_weight)
         return batch_encoder_inputs, batch_decoder_inputs, batch_weights
 
     def step(self, session, encoder_inputs, decoder_inputs, target_weights,

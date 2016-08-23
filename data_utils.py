@@ -150,55 +150,59 @@ def generate_sequence(regressor, test_sequence, seed_timesteps, prediction_lengt
     return track
 
 
-#%matplotlib inline
-import numpy as np
-import pandas as pd
-import tensorflow as tf
-from matplotlib import pyplot as plt
-
-from tensorflow.contrib import learn
-from sklearn.metrics import mean_squared_error
-
-#from lstm import x_sin, sin_cos, generate_data, lstm_model
-
-#NOTE
-#TIMESTEPS is the track length the model is allowed to look back for.
-
-LOG_DIR = './ops_logs'
-TIMESTEPS = 20
-#BUG This is wrong. The number of RNN layers is not the length of data fed into the RNN
-#100 is ... ok, try fewer later
-RNN_LAYERS = [{'steps': 100}] #[{'steps': TIMESTEPS}]
-DENSE_LAYERS = None
-TRAINING_STEPS = 10000
-BATCH_SIZE = 100
-PRINT_STEPS = TRAINING_STEPS / 100
-
-#Everything in learn is actually skflow. This is why this is so confusing, and why the session is abstracted.
-
-
-X, y = generate_data(np.sin, np.linspace(0, 100, 10000), [(0, 1, 0, 16),
-                                                        (0, 1, 0, 16),
-                                                        (0, 1, 0, 16),
-                                                        (0, 1, 0, 16),
-                                                          ],TIMESTEPS, TIMESTEPS, seperate=False)
-#New y format breaks this
-test_sequence = np.concatenate([X['test'][0],y['test']])
-
-
-#The below is false. It still has a strange disjoint when it starts predicting though
-#BUG there is a chance the sequence generator is predicting backwards, which would explain the step at the beginning.
-#I find this strange, but there is an easy way to find out, stop feeding at a peak
-#This section here needs to be modified with a sequence generation function
-
-# plot_predicted, = plt.plot(predicted, label='predicted')
-# plot_test, = plt.plot(test_sequence[0:len(predicted)], label='test')
-# plt.legend(handles=[plot_predicted, plot_test])
-# plt.show()
-
-quit()
 
 
 
-X, y = generate_data(x_sin, np.linspace(0, 100, 10000), [(0,1,0,1)],TIMESTEPS, seperate=False)
+if __name__ == "__main__":
+    #%matplotlib inline
+    import numpy as np
+    import pandas as pd
+    import tensorflow as tf
+    from matplotlib import pyplot as plt
+
+    from tensorflow.contrib import learn
+    from sklearn.metrics import mean_squared_error
+
+    #from lstm import x_sin, sin_cos, generate_data, lstm_model
+
+    #NOTE
+    #TIMESTEPS is the track length the model is allowed to look back for.
+
+    LOG_DIR = './ops_logs'
+    TIMESTEPS = 20
+    #BUG This is wrong. The number of RNN layers is not the length of data fed into the RNN
+    #100 is ... ok, try fewer later
+    RNN_LAYERS = [{'steps': 100}] #[{'steps': TIMESTEPS}]
+    DENSE_LAYERS = None
+    TRAINING_STEPS = 10000
+    BATCH_SIZE = 100
+    PRINT_STEPS = TRAINING_STEPS / 100
+
+    #Everything in learn is actually skflow. This is why this is so confusing, and why the session is abstracted.
+
+
+    X, y = generate_data(np.sin, np.linspace(0, 100, 10000), [(0, 1, 0, 16),
+                                                            (0, 1, 0, 16),
+                                                            (0, 1, 0, 16),
+                                                            (0, 1, 0, 16),
+                                                              ],TIMESTEPS, TIMESTEPS, seperate=False)
+    #New y format breaks this
+    test_sequence = np.concatenate([X['test'][0],y['test']])
+
+
+    #The below is false. It still has a strange disjoint when it starts predicting though
+    #BUG there is a chance the sequence generator is predicting backwards, which would explain the step at the beginning.
+    #I find this strange, but there is an easy way to find out, stop feeding at a peak
+    #This section here needs to be modified with a sequence generation function
+
+    # plot_predicted, = plt.plot(predicted, label='predicted')
+    # plot_test, = plt.plot(test_sequence[0:len(predicted)], label='test')
+    # plt.legend(handles=[plot_predicted, plot_test])
+    # plt.show()
+
+    quit()
+
+
+
+    X, y = generate_data(x_sin, np.linspace(0, 100, 10000), [(0,1,0,1)],TIMESTEPS, seperate=False)
 
