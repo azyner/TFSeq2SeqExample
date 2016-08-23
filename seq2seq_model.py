@@ -129,20 +129,29 @@ class Seq2SeqModel(object):
         # Get a random batch of encoder and decoder inputs from data,
         # pad them if needed, reverse encoder inputs and add GO to decoder.
         for _ in xrange(self.batch_size):
-          encoder_input, decoder_input = random.choice()
+          #encoder_input, decoder_input = random.choice()
+          index = random.randrange(encoder_data.shape(0))
+          encoder_input = encoder_data[index]
+          decoder_input = decoder_data[index]
+
+          #encoder_data.size 2538 23 1
+          #decoder_data.size 2538 31 1
+
+          #Pick random int from encoder_data.size[0]
 
           # Encoder inputs are padded and then reversed. ### ALEX ### -- HUH? Why reversed?
           #Language works better in reverse -- dont ask
 
           encoder_inputs.append(encoder_input)
 
-          # Decoder inputs get an extra "GO" symbol, and are padded then.
-          decoder_pad_size = decoder_size - len(decoder_input) - 1
-          decoder_inputs.append([data_utils.GO_ID] + decoder_input +
-                                [data_utils.PAD_ID] * decoder_pad_size)
+          # Decoder inputs get an extra "GO" symbol
+          decoder_inputs.append([data_utils.GO_ID] + decoder_input)
 
         # Batch encoder inputs are just re-indexed encoder_inputs.
-        for length_idx in xrange(encoder_size):
+        #TODO Alex -- how are the data re-indexed? This is convoluted and not commented
+        #It appears to be an unroll of the batch, does it swap axes?
+        
+        for length_idx in xrange(len(encoder_inputs)):
           batch_encoder_inputs.append(
               np.array([encoder_inputs[batch_idx][length_idx]
                         for batch_idx in xrange(self.batch_size)], dtype=np.int32))
