@@ -6,15 +6,29 @@ import data_utils
 
 class Seq2SeqModel(object):
 
-    def __init__(self, parameters, generate, encoder_steps, decoder_steps, batch_size):
+    #TODO Alex Thursday:
+    # Separate training bool and feed_forward_track bool
+    # Add warning for not traning, and feed_forward
+    def __init__(self, parameters, feed_forward, train, encoder_steps, decoder_steps, batch_size):
+        #feed_forward: whether or not to use a loopback function and feed the last ouput to the next input during sequence generation
+        #train: train the model
+
         max_gradient_norm = 5.0
-        size = 11
+        size = 31
         num_layers = 3
         dtype = tf.float32
+        learning_rate = 0.05
+        learning_rate_decay_factor = 0.9
+
         self.batch_size = batch_size
         self.input_size = 1
         self.encoder_steps = encoder_steps
         self.decoder_steps = decoder_steps
+        self.learning_rate = tf.Variable(float(learning_rate), trainable=False)
+        self.learning_rate_decay_op = self.learning_rate.assign(
+        self.learning_rate * learning_rate_decay_factor)
+        self.global_step = tf.Variable(0, trainable=False)
+
 
         #TODO
         #killall:
@@ -33,9 +47,30 @@ class Seq2SeqModel(object):
         if num_layers > 1:
           cell = tf.nn.rnn_cell.MultiRNNCell([single_cell] * num_layers)
 
+        def simple_loop_function(prev, _):
+            return prev
+
+        from tensorflow.python.ops import variable_scope
+        from tensorflow.python.framework import dtypes
+        from tensorflow.python.ops import rnn
+        from tensorflow.python.ops.seq2seq import rnn_decoder
+        def basic_rnn_seq2seq_with_loop_function(
+                encoder_inputs, decoder_inputs, cell, dtype=dtypes.float32,loop_function=simple_loop_function, scope=None):
+            """Basic RNN sequence-to-sequence model. Edited for a loopback function. Don't know why this isn't in the
+            current library
+            """
+            with variable_scope.variable_scope(scope or "basic_rnn_seq2seq_with_loop_function"):
+                _, enc_state = rnn.rnn(cell, encoder_inputs, dtype=dtype)
+                return rnn_decoder(decoder_inputs, enc_state, cell,loop_function=loop_function)
+
         # The seq2seq function: we use embedding for the input and attention.
         def seq2seq_f(encoder_inputs, decoder_inputs, do_decode):
-            return tf.nn.seq2seq.basic_rnn_seq2seq(encoder_inputs,decoder_inputs,cell,dtype=dtype)
+            if do_decode:
+                loopback_function = simple_loop_function
+            else:
+                loopback_function = None
+            return basic_rnn_seq2seq_with_loop_function(encoder_inputs,decoder_inputs,cell,
+                                                                      loop_function=loopback_function,dtype=dtype)
             #basic_rnn_seq2seq returns rnn_decoder returns output, state
             #there is no loss function here
           # return tf.nn.seq2seq.embedding_attention_seq2seq(
@@ -64,8 +99,8 @@ class Seq2SeqModel(object):
         for i in xrange(self.encoder_steps):  # Last bucket is the biggest one.
             self.encoder_inputs.append(tf.placeholder(tf.float32, shape=[batch_size, 1],
                                                     name="encoder{0}".format(i)))
-        #for i in xrange(self.decoder_steps + 1):
-        for i in xrange(self.decoder_steps):
+        for i in xrange(self.decoder_steps + 1):
+        #for i in xrange(self.decoder_steps):
             self.decoder_inputs.append(tf.placeholder(tf.float32, shape=[batch_size, 1],
                                                     name="decoder{0}".format(i)))
             self.target_weights.append(tf.placeholder(dtype, shape=[batch_size],
@@ -90,10 +125,10 @@ class Seq2SeqModel(object):
         # Training outputs and losses.
         #seq2seq_f: encoder_inputs is a LIST of 2D tensors of size [batch x input_size]
         #The comments on seq2seq seem to imply that the list should be timesteps long
-        if generate: #Test
-            self.outputs, self.internal_states = seq2seq_f(self.encoder_inputs, self.decoder_inputs, generate)
-        else: #Training
-            self.outputs, self.internal_states = seq2seq_f(self.encoder_inputs, self.decoder_inputs, generate)
+        if train: #Training
+            self.outputs, self.internal_states = seq2seq_f(self.encoder_inputs, self.decoder_inputs, feed_forward)
+        else: #Testing
+            self.outputs, self.internal_states = seq2seq_f(self.encoder_inputs, self.decoder_inputs, feed_forward)
 
         def RMSE(x,y):
             return  tf.sqrt(tf.reduce_mean(tf.square(tf.sub(y, x))))
@@ -103,15 +138,15 @@ class Seq2SeqModel(object):
         # Mainly, average MSE over the whole track, or just at a horizon time (t+10 or something)
         # There's this corner alg that Social LSTM refernces, but I haven't looked into it.
 
-        self.losses = tf.nn.seq2seq.sequence_loss_by_example(self.outputs,targets,self.target_weights,softmax_loss_function=lambda x, y: RMSE(x,y))
+        self.losses = tf.nn.seq2seq.sequence_loss(self.outputs,targets,self.target_weights,softmax_loss_function=lambda x, y: RMSE(x,y))
 
         # Gradients and SGD update operation for training the model.
         params = tf.trainable_variables()
-        if not generate:
+        if train:
             self.gradient_norms = []
             self.updates = []
             opt = tf.train.GradientDescentOptimizer(self.learning_rate)
-            gradients = tf.gradients(self.loss, params)
+            gradients = tf.gradients(self.losses, params)
             clipped_gradients, norm = tf.clip_by_global_norm(gradients, max_gradient_norm)
 
             self.gradient_norms.append(norm)
@@ -178,11 +213,8 @@ class Seq2SeqModel(object):
                     np.array([encoder_inputs[batch_idx][length_idx]
                     for batch_idx in xrange(self.batch_size)], dtype=np.float32))
 
-
         # Batch decoder inputs are re-indexed decoder_inputs, we create weights.
         #batch_decoder_inputs = decoder_inputs
-
-
 
         for length_idx in xrange(self.decoder_steps+1): # +1 for go symbol
             batch_decoder_inputs.append(
@@ -219,40 +251,41 @@ class Seq2SeqModel(object):
             target_weights disagrees with bucket size for the specified bucket_id.
         """
         # Check if the sizes match.
-        encoder_size, decoder_size = self.buckets[bucket_id]
-        if len(encoder_inputs) != encoder_size:
-          raise ValueError("Encoder length must be equal to the one in bucket,"
-                           " %d != %d." % (len(encoder_inputs), encoder_size))
-        if len(decoder_inputs) != decoder_size:
-          raise ValueError("Decoder length must be equal to the one in bucket,"
-                           " %d != %d." % (len(decoder_inputs), decoder_size))
-        if len(target_weights) != decoder_size:
-          raise ValueError("Weights length must be equal to the one in bucket,"
-                           " %d != %d." % (len(target_weights), decoder_size))
+        # encoder_size, decoder_size = self.buckets[bucket_id]
+        # if len(encoder_inputs) != encoder_size:
+        #   raise ValueError("Encoder length must be equal to the one in bucket,"
+        #                    " %d != %d." % (len(encoder_inputs), encoder_size))
+        # if len(decoder_inputs) != decoder_size:
+        #   raise ValueError("Decoder length must be equal to the one in bucket,"
+        #                    " %d != %d." % (len(decoder_inputs), decoder_size))
+        # if len(target_weights) != decoder_size:
+        #   raise ValueError("Weights length must be equal to the one in bucket,"
+        #                    " %d != %d." % (len(target_weights), decoder_size))
 
         # Input feed: encoder inputs, decoder inputs, target_weights, as provided.
         input_feed = {}
-        for l in xrange(encoder_size):
+        for l in xrange(self.encoder_steps):
           input_feed[self.encoder_inputs[l].name] = encoder_inputs[l]
-        for l in xrange(decoder_size):
+        for l in xrange(self.decoder_steps+1):
           input_feed[self.decoder_inputs[l].name] = decoder_inputs[l]
           input_feed[self.target_weights[l].name] = target_weights[l]
 
         # Since our targets are decoder inputs shifted by one, we need one more.
-        last_target = self.decoder_inputs[decoder_size].name
-        input_feed[last_target] = np.zeros([self.batch_size], dtype=np.int32)
+        last_target = self.decoder_inputs[self.decoder_steps].name
+        #input_feed[last_target] = np.zeros([self.batch_size], dtype=np.int32)
+        input_feed[last_target] = np.array([np.zeros(self.input_size,dtype=np.float32)]*self.batch_size)
 
         # Output feed: depends on whether we do a backward step or not.
-        if not generate:
-          output_feed = [self.updates,  # Update Op that does SGD.
-                         self.gradient_norms,  # Gradient norm.
-                         self.losses]  # Loss for this batch.
+        if not generate: #The format for this array broke. Proper format is a list of three tensors
+          output_feed = (self.updates +  # Update Op that does SGD.
+                         self.gradient_norms +  # Gradient norm.
+                         [self.losses])  # Loss for this batch.
         else:
           output_feed = [self.losses]  # Loss for this batch.
-          for l in xrange(decoder_size):  # Output logits.
+          for l in xrange(self.decoder_steps+1):  # Output logits.
             output_feed.append(self.outputs[bucket_id][l])
 
-        outputs = session.run(output_feed, input_feed)
+        outputs = session.run(output_feed, input_feed) #TODO Check decoder 31
         if not generate:
           return outputs[1], outputs[2], None  # Gradient norm, loss, no outputs.
         else:

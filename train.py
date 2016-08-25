@@ -48,9 +48,9 @@ FLAGS = tf.app.flags.FLAGS
 
 
 
-def create_model(session, train_model, encoder_steps, decoder_steps, batch_size):
+def create_model(session,feed_forward, train_model, encoder_steps, decoder_steps, batch_size):
     parameters = None
-    model = Seq2SeqModel(parameters,not train_model, encoder_steps, decoder_steps, batch_size)
+    model = Seq2SeqModel(parameters,feed_forward, train_model, encoder_steps, decoder_steps, batch_size)
     ckpt = tf.train.get_checkpoint_state(FLAGS.train_dir)
     if ckpt and tf.gfile.Exists(ckpt.model_checkpoint_path):
         print("Reading model parameters from %s" % ckpt.model_checkpoint_path)
@@ -59,10 +59,6 @@ def create_model(session, train_model, encoder_steps, decoder_steps, batch_size)
         print("Created model with fresh parameters.")
         session.run(tf.initialize_all_variables())
     return model
-
-#TODO
-#TUESDAY:
-#Follow the training steps. Why is the optimzer not here?
 
 
 
@@ -76,10 +72,12 @@ def train():
     # Create model.
     print("Creating %d layers of %d units." % (FLAGS.num_layers, FLAGS.size))
 
-    encoder_steps = 23
-    decoder_steps = 31
+    encoder_steps = 40
+    decoder_steps = 50
     batch_size = 17
-    model = create_model(sess, False, encoder_steps, decoder_steps, batch_size)
+    train_model = True
+    feed_forward = False
+    model = create_model(sess, feed_forward, train_model, encoder_steps, decoder_steps, batch_size)
 
     # Read data into buckets and compute their sizes.
     print ("Reading development and training data (limit: %d)."
@@ -121,8 +119,8 @@ def train():
       # Once in a while, we save checkpoint, print statistics, and run evals.
       if current_step % FLAGS.steps_per_checkpoint == 0:
         # Print statistics for the previous epoch.
-        perplexity = math.exp(float(loss)) if loss < 300 else float("inf")
-        print ("global step %d learning rate %.4f step-time %.2f perplexity "
+        perplexity = (loss) if loss < 300 else float("inf")
+        print ("global step %d learning rate %.4f step-time %.2f Batch average MSE loss "
                "%.2f" % (model.global_step.eval(), model.learning_rate.eval(),
                          step_time, perplexity))
         # Decrease learning rate if no improvement was seen over last 3 times.
@@ -130,7 +128,7 @@ def train():
           sess.run(model.learning_rate_decay_op)
         previous_losses.append(loss)
         # Save checkpoint and zero timer and loss.
-        checkpoint_path = os.path.join(FLAGS.train_dir, "translate.ckpt")
+        checkpoint_path = os.path.join(FLAGS.train_dir, "TFseq2seqSinusoid.ckpt")
         model.saver.save(sess, checkpoint_path, global_step=model.global_step)
         step_time, loss = 0.0, 0.0
         # Run evals on development set and print their perplexity.

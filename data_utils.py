@@ -8,7 +8,7 @@ _GO = 999
 #_START_VOCAB = [_PAD, _GO, _EOS, _UNK]
 
 PAD_ID = 0.0
-GO_ID = 0.0
+GO_ID = -10.0
 EOS_ID = 2.0
 UNK_ID = 3.0
 
