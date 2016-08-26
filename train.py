@@ -37,7 +37,7 @@ tf.app.flags.DEFINE_integer("max_train_data_size", 0,
                             "Limit on the size of training data (0: no limit).")
 tf.app.flags.DEFINE_integer("steps_per_checkpoint", 200,
                             "How many training steps to do per checkpoint.")
-tf.app.flags.DEFINE_boolean("decode", False,
+tf.app.flags.DEFINE_boolean("decode", True,
                             "Set to True for interactive decoding.")
 tf.app.flags.DEFINE_boolean("self_test", False,
                             "Run a self-test if this is set to True.")
@@ -146,43 +146,34 @@ def train():
 def decode():
   with tf.Session() as sess:
     # Create model and load parameters.
-    model = create_model(sess, True)
-    model.batch_size = 1  # We decode one sentence at a time.
+    encoder_steps = 40
+    decoder_steps = 50
 
-    # Load vocabularies.
-    en_vocab_path = os.path.join(FLAGS.data_dir,
-                                 "vocab%d.en" % FLAGS.en_vocab_size)
-    fr_vocab_path = os.path.join(FLAGS.data_dir,
-                                 "vocab%d.fr" % FLAGS.fr_vocab_size)
-    en_vocab, _ = data_utils.initialize_vocabulary(en_vocab_path)
-    _, rev_fr_vocab = data_utils.initialize_vocabulary(fr_vocab_path)
+    train_model = False
+    feed_forward = False
+    # HACK
 
-    # Decode from standard input.
-    sys.stdout.write("> ")
-    sys.stdout.flush()
-    sentence = sys.stdin.readline()
-    while sentence:
-      # Get token-ids for the input sentence.
-      token_ids = data_utils.sentence_to_token_ids(tf.compat.as_bytes(sentence), en_vocab)
-      # Which bucket does it belong to?
-      # bucket_id = min([b for b in xrange(len(_buckets))
-      #                  if _buckets[b][0] > len(token_ids)])
-      # Get a 1-element batch to feed the sentence to the model.
-      # encoder_inputs, decoder_inputs, target_weights = model.get_batch(
-      #     {bucket_id: [(token_ids, [])]}, bucket_id)
-      # Get output logits for the sentence.
-      # _, _, output_logits = model.step(sess, encoder_inputs, decoder_inputs,
-      #                                  target_weights, """bucket_id""", True)
-      # # This is a greedy decoder - outputs are just argmaxes of output_logits.
-      # outputs = [int(np.argmax(logit, axis=1)) for logit in output_logits]
-      # # If there is an EOS symbol in outputs, cut them at that point.
-      # if data_utils.EOS_ID in outputs:
-      #   outputs = outputs[:outputs.index(data_utils.EOS_ID)]
-      # # Print out French sentence corresponding to outputs.
-      # print(" ".join([tf.compat.as_str(rev_fr_vocab[output]) for output in outputs]))
-      # print("> ", end="")
-      # sys.stdout.flush()
-      # sentence = sys.stdin.readline()
+    model = create_model(sess, feed_forward, train_model, encoder_steps, decoder_steps, 1)
+    model.batch_size = 1  # One string for testing
+
+    X, y = data_utils.generate_data(np.sin, np.linspace(0, 10, 1000), [(0, 1, 0, 16),
+                                                                   (0, 1, 0, 16),
+                                                                   (0, 1, 0, 16),
+                                                                   (0, 1, 0, 16),
+                                                                   ], encoder_steps, decoder_steps, seperate=False)
+    encoder_inputs, decoder_inputs, target_weights = model.get_batch(X['train'], y['train'])
+    true_output = np.copy(decoder_inputs)
+    for i in range(decoder_steps):
+        decoder_inputs[i+1][0] = 0
+    output_a, output_loss, output_logits = model.step(sess,encoder_inputs,decoder_inputs,target_weights,'''bucket_id''',True)
+
+    print output_logits
+      #I see two issues here:
+      #1: training with feed forward is bad
+      #2: the output is a list that is rnn_size wide. I need output projection?
+
+      #Fix in this order
+
 
 
 def self_test():

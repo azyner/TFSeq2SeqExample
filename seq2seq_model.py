@@ -119,7 +119,6 @@ class Seq2SeqModel(object):
 
         targets = [self.decoder_inputs[i + 1]
                     for i in xrange(len(self.decoder_inputs) - 1)]
-        #targets.append(tf.placeholder(tf.float32, shape=[batch_size, 1], name="decoder{0}".format(self.decoder_steps+1)))
         targets.append(self.decoder_inputs[len(self.decoder_inputs)-1])
         # Alex - I don't know what the difference is between forward only and not. (refactored to generate)
         # Training outputs and losses.
@@ -277,13 +276,13 @@ class Seq2SeqModel(object):
 
         # Output feed: depends on whether we do a backward step or not.
         if not generate: #The format for this array broke. Proper format is a list of three tensors
-          output_feed = (self.updates +  # Update Op that does SGD.
+          output_feed = (self.updates +  # Update Op that does SGD. #This is the learning flag
                          self.gradient_norms +  # Gradient norm.
                          [self.losses])  # Loss for this batch.
         else:
           output_feed = [self.losses]  # Loss for this batch.
           for l in xrange(self.decoder_steps+1):  # Output logits.
-            output_feed.append(self.outputs[bucket_id][l])
+            output_feed.append(self.outputs[l])
 
         outputs = session.run(output_feed, input_feed) #TODO Check decoder 31
         if not generate:
