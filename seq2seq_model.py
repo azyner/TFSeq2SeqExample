@@ -14,7 +14,7 @@ class Seq2SeqModel(object):
         #train: train the model
 
         max_gradient_norm = 5.0
-        size = 31
+        size = 1024
         num_layers = 3
         dtype = tf.float32
         learning_rate = 0.05
@@ -234,7 +234,7 @@ class Seq2SeqModel(object):
         return batch_encoder_inputs, batch_decoder_inputs, batch_weights
 
     def step(self, session, encoder_inputs, decoder_inputs, target_weights,
-             bucket_id, feed_forward, train,summary_writer=None):
+             bucket_id, feed_forward, train_model,summary_writer=None):
         """Run a step of the model feeding the given inputs.
         Args:
           session: tensorflow session to use.
@@ -276,7 +276,7 @@ class Seq2SeqModel(object):
         input_feed[last_target] = np.array([np.zeros(self.input_size,dtype=np.float32)]*self.batch_size)
 
         # Output feed: depends on whether we do a backward step or not.
-        if not train: #The format for this array broke. Proper format is a list of three tensors
+        if train_model: #The format for this array broke. Proper format is a list of three tensors
           output_feed = (self.updates +  # Update Op that does SGD. #This is the learning flag
                          self.gradient_norms +  # Gradient norm.
                          [self.losses])  # Loss for this batch.
@@ -292,7 +292,7 @@ class Seq2SeqModel(object):
             summary_op = tf.merge_all_summaries()
             summary_str = session.run(summary_op,input_feed)
             summary_writer.add_summary(summary_str, self.global_step.eval())
-        if not train:
+        if train_model:
           return outputs[1], outputs[2], None  # Gradient norm, loss, no outputs.
         else:
           return None, outputs[0], outputs[1:]  # No gradient norm, loss, outputs.

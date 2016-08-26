@@ -75,9 +75,9 @@ def train():
     # Create model.
     print("Creating %d layers of %d units." % (FLAGS.num_layers, FLAGS.size))
 
-    encoder_steps = 3
-    decoder_steps = 5
-    batch_size = 7
+    encoder_steps = 30
+    decoder_steps = 50
+    batch_size = 70
     train_model = True
     feed_forward = False
 
@@ -110,7 +110,6 @@ def train():
     previous_losses = []
     while True:
 
-
       # Get a batch and make a step.
       start_time = time.time()
 
@@ -122,7 +121,6 @@ def train():
       if current_step % 20 == 0:
           _, step_loss, _ = model.step(sess, encoder_inputs, decoder_inputs,
                                    target_weights, """bucket_id""", feed_forward, False,summary_writer=train_writer)
-
 
       step_time += (time.time() - start_time) / FLAGS.steps_per_checkpoint
       loss += step_loss / FLAGS.steps_per_checkpoint
@@ -163,7 +161,7 @@ def train():
 def decode():
   with tf.Session() as sess:
     # Create model and load parameters.
-    encoder_steps = 40
+    encoder_steps = 30
     decoder_steps = 50
 
     train_model = False
@@ -191,6 +189,40 @@ def decode():
       #2: the output is a list that is rnn_size wide. I need output projection?
 
       #Fix in this order
+      #I created a monster. The average of all input_size is the correct answer
+    output = []
+    for l in range(len(output_logits)):
+        output.append(np.average(output_logits[l]))
+    print output
+    print true_output - output
+    print 'start'
+    for l in range(len(output)):
+        print true_output[l][0][0],  ', ',  output[l]
+    print'stop'
+
+    #re-format graph input
+    input_plot = []
+    for l in range(len(encoder_inputs)):
+        input_plot.append(encoder_inputs[l])
+    output_gen_plt = []
+    for l in range(len(output_logits)):
+        output_gen_plt.append(np.average(output_logits[l][0]))
+    true_output_plot = []
+    for l in range(len(true_output)):
+        true_output_plot.append(true_output[l])
+
+    input_range = range(0,len(input_plot))
+    output_range = range(len(input_plot),len(input_plot)+len(output_logits))
+
+    from bokeh.plotting import figure, output_file, show
+    output_file("traces.html")
+    p1 = figure(title="TFSeq2Seq", x_axis_label='x', y_axis_label='y')
+    p1.line(input_range, input_plot, legend="Input.", line_width=2,color='black')
+    p1.line(output_range, true_output_plot, legend="True Output.", line_width=2,color='blue')
+    p1.line(output_range, output_gen_plt, legend="Generated Output.", line_width=2,color='red')
+    show(p1)
+    print 'break'
+
 
 
 

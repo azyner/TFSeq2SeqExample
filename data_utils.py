@@ -26,10 +26,8 @@ logging.basicConfig(level=logging.INFO)
 def x_sin(x):
     return x * np.sin(x)
 
-
 def sin_cos(x):
     return pd.DataFrame(dict(a=np.sin(x), b=np.cos(x)), index=x)
-
 
 def rnn_data(data, encoder_steps, decoder_steps):
     """
@@ -64,7 +62,6 @@ def split_data(data, val_size=0.1, test_size=0.1):
 
     return df_train, df_val, df_test
 
-
 def prepare_data(data, encoder_steps, decoder_steps, labels=False, val_size=0.1, test_size=0.1):
     """
     Given the number of `time_steps` and some data,
@@ -82,14 +79,12 @@ def generate_data(fct, x, fct_mod, encoder_steps, decoder_steps, seperate=False)
     fct: The function to be used to generate data (eg sin)
     x: the linspace to pass to the function
     fct mod: A list of elements of 4 tuples that represent function modifiers: a+b*fct(c+d*x)
-
     """
 
     train_x, val_x, test_x = [],[],[]
     train_y, val_y, test_y = [],[],[]
 
     for wave in fct_mod:
-
         a = wave[0]
         b = wave[1]
         c = wave[2]
@@ -131,7 +126,6 @@ def generate_data(fct, x, fct_mod, encoder_steps, decoder_steps, seperate=False)
                 val=np.array(val_y),
                 test=np.array(test_y))
 
-
 def generate_sequence(regressor, test_sequence, seed_timesteps, prediction_length=None):
     if prediction_length > len(test_sequence)-seed_timesteps:
         raise AssertionError("Prediction length must be less than len(test_sequence)-seed_timesteps")
@@ -148,10 +142,6 @@ def generate_sequence(regressor, test_sequence, seed_timesteps, prediction_lengt
         print len(track)
         #track = np.concatenate([track,regressor.predict(track)])
     return track
-
-
-
-
 
 if __name__ == "__main__":
     #%matplotlib inline
@@ -178,9 +168,6 @@ if __name__ == "__main__":
     BATCH_SIZE = 100
     PRINT_STEPS = TRAINING_STEPS / 100
 
-    #Everything in learn is actually skflow. This is why this is so confusing, and why the session is abstracted.
-
-
     X, y = generate_data(np.sin, np.linspace(0, 100, 10000), [(0, 1, 0, 16),
                                                             (0, 1, 0, 16),
                                                             (0, 1, 0, 16),
@@ -188,21 +175,13 @@ if __name__ == "__main__":
                                                               ],TIMESTEPS, TIMESTEPS, seperate=False)
     #New y format breaks this
     test_sequence = np.concatenate([X['test'][0],y['test']])
-
-
     #The below is false. It still has a strange disjoint when it starts predicting though
     #BUG there is a chance the sequence generator is predicting backwards, which would explain the step at the beginning.
     #I find this strange, but there is an easy way to find out, stop feeding at a peak
     #This section here needs to be modified with a sequence generation function
-
     # plot_predicted, = plt.plot(predicted, label='predicted')
     # plot_test, = plt.plot(test_sequence[0:len(predicted)], label='test')
     # plt.legend(handles=[plot_predicted, plot_test])
     # plt.show()
-
     quit()
-
-
-
     X, y = generate_data(x_sin, np.linspace(0, 100, 10000), [(0,1,0,1)],TIMESTEPS, seperate=False)
-
