@@ -31,13 +31,14 @@ tf.app.flags.DEFINE_integer("size", 1024, "Size of each model layer.")
 tf.app.flags.DEFINE_integer("num_layers", 3, "Number of layers in the model.")
 tf.app.flags.DEFINE_integer("en_vocab_size", 40000, "English vocabulary size.")
 tf.app.flags.DEFINE_integer("fr_vocab_size", 40000, "French vocabulary size.")
-tf.app.flags.DEFINE_string("data_dir", "/tmp", "Data directory")
-tf.app.flags.DEFINE_string("train_dir", "/tmp", "Training directory.")
+tf.app.flags.DEFINE_string("data_dir", "data", "Data directory")
+tf.app.flags.DEFINE_string("train_dir", "train", "Training directory.")
+tf.app.flags.DEFINE_string("logs_dir", "logs", "Logs directory.")
 tf.app.flags.DEFINE_integer("max_train_data_size", 0,
                             "Limit on the size of training data (0: no limit).")
 tf.app.flags.DEFINE_integer("steps_per_checkpoint", 200,
                             "How many training steps to do per checkpoint.")
-tf.app.flags.DEFINE_boolean("decode", True,
+tf.app.flags.DEFINE_boolean("decode", False,
                             "Set to True for interactive decoding.")
 tf.app.flags.DEFINE_boolean("self_test", False,
                             "Run a self-test if this is set to True.")
@@ -51,6 +52,8 @@ FLAGS = tf.app.flags.FLAGS
 def create_model(session,feed_forward, train_model, encoder_steps, decoder_steps, batch_size):
     parameters = None
     model = Seq2SeqModel(parameters,feed_forward, train_model, encoder_steps, decoder_steps, batch_size)
+    if not os.path.exists(FLAGS.train_dir):
+        os.makedirs(FLAGS.train_dir)
     ckpt = tf.train.get_checkpoint_state(FLAGS.train_dir)
     if ckpt and tf.gfile.Exists(ckpt.model_checkpoint_path):
         print("Reading model parameters from %s" % ckpt.model_checkpoint_path)
@@ -72,19 +75,22 @@ def train():
     # Create model.
     print("Creating %d layers of %d units." % (FLAGS.num_layers, FLAGS.size))
 
-    encoder_steps = 40
-    decoder_steps = 50
-    batch_size = 17
+    encoder_steps = 3
+    decoder_steps = 5
+    batch_size = 7
     train_model = True
     feed_forward = False
+
     model = create_model(sess, feed_forward, train_model, encoder_steps, decoder_steps, batch_size)
+
+    train_writer=tf.train.SummaryWriter(os.path.join(FLAGS.logs_dir,'train'),sess.graph)
+    summary_op = tf.merge_all_summaries()
 
     # Read data into buckets and compute their sizes.
     print ("Reading development and training data (limit: %d)."
            % FLAGS.max_train_data_size)
     #dev_set = test_data?
     #train_set = get_data
-
 
     X, y = data_utils.generate_data(np.sin, np.linspace(0, 10, 1000), [(0, 1, 0, 16),
                                                               (0, 1, 0, 16),
@@ -111,7 +117,13 @@ def train():
       encoder_inputs, decoder_inputs, target_weights = model.get_batch(X['train'],y['train'])
 
       _, step_loss, _ = model.step(sess, encoder_inputs, decoder_inputs,
-                                   target_weights, """bucket_id""", False)
+                                   target_weights, """bucket_id""", feed_forward, train_model)
+      #Periodically, run without training for the summary logs
+      if current_step % 20 == 0:
+          _, step_loss, _ = model.step(sess, encoder_inputs, decoder_inputs,
+                                   target_weights, """bucket_id""", feed_forward, False,summary_writer=train_writer)
+
+
       step_time += (time.time() - start_time) / FLAGS.steps_per_checkpoint
       loss += step_loss / FLAGS.steps_per_checkpoint
       current_step += 1
@@ -124,13 +136,18 @@ def train():
                "%.2f" % (model.global_step.eval(), model.learning_rate.eval(),
                          step_time, perplexity))
         # Decrease learning rate if no improvement was seen over last 3 times.
-        if len(previous_losses) > 2 and loss > max(previous_losses[-3:]):
+        decrement_timestep = 10
+        if len(previous_losses) > decrement_timestep-1 and loss > max(previous_losses[-decrement_timestep:]):
           sess.run(model.learning_rate_decay_op)
         previous_losses.append(loss)
         # Save checkpoint and zero timer and loss.
         checkpoint_path = os.path.join(FLAGS.train_dir, "TFseq2seqSinusoid.ckpt")
+
+
         model.saver.save(sess, checkpoint_path, global_step=model.global_step)
         step_time, loss = 0.0, 0.0
+
+
         # Run evals on development set and print their perplexity.
 
         # encoder_inputs, decoder_inputs, target_weights = model.get_batch(
@@ -165,7 +182,8 @@ def decode():
     true_output = np.copy(decoder_inputs)
     for i in range(decoder_steps):
         decoder_inputs[i+1][0] = 0
-    output_a, output_loss, output_logits = model.step(sess,encoder_inputs,decoder_inputs,target_weights,'''bucket_id''',True)
+    output_a, output_loss, output_logits = model.step(sess,encoder_inputs,decoder_inputs,target_weights,'''bucket_id''',
+                                                      feed_forward, train_model)
 
     print output_logits
       #I see two issues here:

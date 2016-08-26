@@ -29,7 +29,6 @@ class Seq2SeqModel(object):
         self.learning_rate * learning_rate_decay_factor)
         self.global_step = tf.Variable(0, trainable=False)
 
-
         #TODO
         #killall:
         # buckets - used for different length strings, sort into buckets to minimize badding but keep enough for a batch
@@ -154,6 +153,8 @@ class Seq2SeqModel(object):
 
         self.saver = tf.train.Saver(tf.all_variables())
 
+        tf.scalar_summary('Loss',self.losses)
+
     def get_batch(self, encoder_data, decoder_data):
         #This whole function just collects random pairs of encoder/decoder from data and adds them into a batch
         #This is where the target weight is created, it is zero for padding, 1 for everything else
@@ -233,7 +234,7 @@ class Seq2SeqModel(object):
         return batch_encoder_inputs, batch_decoder_inputs, batch_weights
 
     def step(self, session, encoder_inputs, decoder_inputs, target_weights,
-             bucket_id, generate):
+             bucket_id, feed_forward, train,summary_writer=None):
         """Run a step of the model feeding the given inputs.
         Args:
           session: tensorflow session to use.
@@ -241,7 +242,7 @@ class Seq2SeqModel(object):
           decoder_inputs: list of numpy int vectors to feed as decoder inputs.
           target_weights: list of numpy float vectors to feed as target weights.
           bucket_id: which bucket of the model to use.
-          generate: whether to do the backward step or only forward.
+          train: whether to do the backward step or only forward.
         Returns:
           A triple consisting of gradient norm (or None if we did not do backward),
           average perplexity, and the outputs.
@@ -275,7 +276,7 @@ class Seq2SeqModel(object):
         input_feed[last_target] = np.array([np.zeros(self.input_size,dtype=np.float32)]*self.batch_size)
 
         # Output feed: depends on whether we do a backward step or not.
-        if not generate: #The format for this array broke. Proper format is a list of three tensors
+        if not train: #The format for this array broke. Proper format is a list of three tensors
           output_feed = (self.updates +  # Update Op that does SGD. #This is the learning flag
                          self.gradient_norms +  # Gradient norm.
                          [self.losses])  # Loss for this batch.
@@ -284,8 +285,14 @@ class Seq2SeqModel(object):
           for l in xrange(self.decoder_steps+1):  # Output logits.
             output_feed.append(self.outputs[l])
 
+        #This whole ouput format is really bad form, it makes adding a tensorboard summary difficult as
+        #different variables (loss, output,etc) share the same name.
         outputs = session.run(output_feed, input_feed) #TODO Check decoder 31
-        if not generate:
+        if summary_writer is not None:
+            summary_op = tf.merge_all_summaries()
+            summary_str = session.run(summary_op,input_feed)
+            summary_writer.add_summary(summary_str, self.global_step.eval())
+        if not train:
           return outputs[1], outputs[2], None  # Gradient norm, loss, no outputs.
         else:
           return None, outputs[0], outputs[1:]  # No gradient norm, loss, outputs.
