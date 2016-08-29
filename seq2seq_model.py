@@ -14,7 +14,7 @@ class Seq2SeqModel(object):
         #train: train the model
 
         max_gradient_norm = 5.0
-        size = 32
+        size = 83
         num_layers = 3
         dtype = tf.float32
         learning_rate = 0.05
@@ -47,7 +47,7 @@ class Seq2SeqModel(object):
           cell = tf.nn.rnn_cell.MultiRNNCell([single_cell] * num_layers)
 
         def simple_loop_function(prev, _):
-            return prev
+            return tf.reduce_mean(prev,1,keep_dims=True) #HACK An output projection should go here.
 
         from tensorflow.python.ops import variable_scope
         from tensorflow.python.framework import dtypes
