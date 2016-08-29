@@ -3,6 +3,9 @@ import numpy as np
 import random
 from six.moves import xrange  # pylint: disable=redefined-builtin
 import data_utils
+from tensorflow.python.ops import math_ops
+from tensorflow.python.ops import nn_ops
+
 
 class Seq2SeqModel(object):
 
@@ -29,6 +32,13 @@ class Seq2SeqModel(object):
         self.learning_rate * learning_rate_decay_factor)
         self.global_step = tf.Variable(0, trainable=False)
 
+        #as the rnn layers output values of size (layer width) and we need it to be the same size as the input
+        #output_projection is used to condense
+
+        w = tf.get_variable("proj_w", [size, self.input_size])
+        b = tf.get_variable("proj_b", [self.input_size])
+        output_projection = (w, b)
+
         #TODO
         #killall:
         # buckets - used for different length strings, sort into buckets to minimize badding but keep enough for a batch
@@ -36,7 +46,6 @@ class Seq2SeqModel(object):
         #
         #Understand:
         #forward only. What is forward only? Data use? Should I disable during training, and enable during validation/generation?
-
 
         #define layers here
         #input, linear RNN RNN linear etc
@@ -47,14 +56,17 @@ class Seq2SeqModel(object):
           cell = tf.nn.rnn_cell.MultiRNNCell([single_cell] * num_layers)
 
         def simple_loop_function(prev, _):
-            return tf.reduce_mean(prev,1,keep_dims=True) #HACK An output projection should go here.
+            if output_projection is not None:
+                prev = nn_ops.xw_plus_b(
+                        prev, output_projection[0], output_projection[1])
+            return prev #HACK An output projection should go here.
 
         from tensorflow.python.ops import variable_scope
         from tensorflow.python.framework import dtypes
         from tensorflow.python.ops import rnn
         from tensorflow.python.ops.seq2seq import rnn_decoder
         def basic_rnn_seq2seq_with_loop_function(
-                encoder_inputs, decoder_inputs, cell, dtype=dtypes.float32,loop_function=simple_loop_function, scope=None):
+                encoder_inputs, decoder_inputs, cell, dtype=dtypes.float32,loop_function=simple_loop_function,scope=None):
             """Basic RNN sequence-to-sequence model. Edited for a loopback function. Don't know why this isn't in the
             current library
             """
@@ -126,6 +138,15 @@ class Seq2SeqModel(object):
             self.outputs, self.internal_states = seq2seq_f(self.encoder_inputs, self.decoder_inputs, feed_forward)
         else: #Testing
             self.outputs, self.internal_states = seq2seq_f(self.encoder_inputs, self.decoder_inputs, feed_forward)
+
+        #self.outputs is of size (batch x rnn_size) It needts to be of size (batch x input_size)
+        #output_projection goes here.
+        #self.outputs is a list of decoder_steps+1 of [size batch x rnn_size]
+        if output_projection is not None:
+            self.outputs = [
+                    tf.matmul(output, output_projection[0]) + output_projection[1]
+                    for output in self.outputs
+                ]
 
         def RMSE(x,y):
             return  tf.sqrt(tf.reduce_mean(tf.square(tf.sub(y, x))))
