@@ -21,7 +21,7 @@ import time
 
 
 tf.app.flags.DEFINE_float("learning_rate", 0.5, "Learning rate.")
-tf.app.flags.DEFINE_float("learning_rate_decay_factor", 0.99,
+tf.app.flags.DEFINE_float("learning_rate_decay_factor", 0.9,
                           "Learning rate decays by this much.")
 tf.app.flags.DEFINE_float("max_gradient_norm", 5.0,
                           "Clip gradients to this norm.")
@@ -75,9 +75,9 @@ def train():
     # Create model.
     print("Creating %d layers of %d units." % (FLAGS.num_layers, FLAGS.size))
 
-    encoder_steps = 30
+    encoder_steps = 40
     decoder_steps = 50
-    batch_size = 70
+    batch_size = 64
     train_model = True
     feed_forward = False
 
@@ -92,7 +92,7 @@ def train():
     #dev_set = test_data?
     #train_set = get_data
 
-    X, y = data_utils.generate_data(np.sin, np.linspace(0, 10, 1000), [(0, 1, 0, 16),
+    X, y = data_utils.generate_data(np.sin, np.linspace(0, 100, 10000), [(0, 1, 0, 16),
                                                               (0, 1, 0, 16),
                                                               (0, 1, 0, 16),
                                                               (0, 1, 0, 16),
@@ -134,7 +134,7 @@ def train():
                "%.2f" % (model.global_step.eval(), model.learning_rate.eval(),
                          step_time, perplexity))
         # Decrease learning rate if no improvement was seen over last 3 times.
-        decrement_timestep = 10
+        decrement_timestep = 3
         if len(previous_losses) > decrement_timestep-1 and loss > max(previous_losses[-decrement_timestep:]):
           sess.run(model.learning_rate_decay_op)
         previous_losses.append(loss)
@@ -161,7 +161,7 @@ def train():
 def decode():
   with tf.Session() as sess:
     # Create model and load parameters.
-    encoder_steps = 30
+    encoder_steps = 40
     decoder_steps = 50
 
     train_model = False
@@ -171,7 +171,7 @@ def decode():
     model = create_model(sess, feed_forward, train_model, encoder_steps, decoder_steps, 1)
     model.batch_size = 1  # One string for testing
 
-    X, y = data_utils.generate_data(np.sin, np.linspace(0, 10, 1000), [(0, 1, 0, 16),
+    X, y = data_utils.generate_data(np.sin, np.linspace(0, 100, 10000), [(0, 1, 0, 16),
                                                                    (0, 1, 0, 16),
                                                                    (0, 1, 0, 16),
                                                                    (0, 1, 0, 16),
@@ -222,8 +222,6 @@ def decode():
     p1.line(output_range, output_gen_plt, legend="Generated Output.", line_width=2,color='red')
     show(p1)
     print 'break'
-
-
 
 
 def self_test():

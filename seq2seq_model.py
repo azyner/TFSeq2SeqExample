@@ -14,7 +14,7 @@ class Seq2SeqModel(object):
         #train: train the model
 
         max_gradient_norm = 5.0
-        size = 1024
+        size = 32
         num_layers = 3
         dtype = tf.float32
         learning_rate = 0.05
@@ -63,11 +63,11 @@ class Seq2SeqModel(object):
                 return rnn_decoder(decoder_inputs, enc_state, cell,loop_function=loop_function)
 
         # The seq2seq function: we use embedding for the input and attention.
-        def seq2seq_f(encoder_inputs, decoder_inputs, do_decode):
-            if do_decode:
+        def seq2seq_f(encoder_inputs, decoder_inputs, feed_forward):
+            if not feed_forward: #feed last output as next input
                 loopback_function = simple_loop_function
             else:
-                loopback_function = None
+                loopback_function = None #feed correct input
             return basic_rnn_seq2seq_with_loop_function(encoder_inputs,decoder_inputs,cell,
                                                                       loop_function=loopback_function,dtype=dtype)
             #basic_rnn_seq2seq returns rnn_decoder returns output, state
@@ -104,7 +104,6 @@ class Seq2SeqModel(object):
                                                     name="decoder{0}".format(i)))
             self.target_weights.append(tf.placeholder(dtype, shape=[batch_size],
                                                     name="weight{0}".format(i)))
-
 
         #self.target = tf.placeholder(tf.float32,shape=[batch_size, self.input_size],name="target")
 
