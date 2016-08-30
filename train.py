@@ -27,7 +27,7 @@ tf.app.flags.DEFINE_float("max_gradient_norm", 5.0,
                           "Clip gradients to this norm.")
 tf.app.flags.DEFINE_integer("batch_size", 64,
                             "Batch size to use during training.")
-tf.app.flags.DEFINE_integer("rnn_size", 16, "Size of each model layer.")
+tf.app.flags.DEFINE_integer("rnn_size", 2, "Size of each model layer.")
 tf.app.flags.DEFINE_integer("num_layers", 1, "Number of layers in the model.")
 tf.app.flags.DEFINE_string("data_dir", "data", "Data directory")
 tf.app.flags.DEFINE_string("train_dir", "train", "Training directory.")
@@ -142,7 +142,7 @@ def train():
 
         model.saver.save(sess, checkpoint_path, global_step=model.global_step)
         step_time, loss = 0.0, 0.0
-        if perplexity < 0.02:
+        if perplexity < 0.02 or model.learning_rate.eval() < 0.01:
             break
 
 
@@ -186,17 +186,17 @@ def decode():
     output_a, output_loss, output_logits = model.step(sess,encoder_inputs,decoder_inputs,target_weights,'''bucket_id''',
                                                       feed_forward, train_model)
 
-    print output_logits
+    #print output_logits
 
     output = []
     for l in range(len(output_logits)):
         output.append(np.average(output_logits[l]))
-    print output
-    print true_output - output
-    print 'start'
-    for l in range(len(output)):
-        print true_output[l][0][0],  ', ',  output[l]
-    print'stop'
+    # print output
+    # print true_output - output
+    # print 'start'
+    # for l in range(len(output)):
+    #     print true_output[l][0][0],  ', ',  output[l]
+    # print'stop'
 
     #re-format graph input
     input_plot = []
