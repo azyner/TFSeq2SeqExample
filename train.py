@@ -27,10 +27,8 @@ tf.app.flags.DEFINE_float("max_gradient_norm", 5.0,
                           "Clip gradients to this norm.")
 tf.app.flags.DEFINE_integer("batch_size", 64,
                             "Batch size to use during training.")
-tf.app.flags.DEFINE_integer("size", 1024, "Size of each model layer.")
-tf.app.flags.DEFINE_integer("num_layers", 3, "Number of layers in the model.")
-tf.app.flags.DEFINE_integer("en_vocab_size", 40000, "English vocabulary size.")
-tf.app.flags.DEFINE_integer("fr_vocab_size", 40000, "French vocabulary size.")
+tf.app.flags.DEFINE_integer("rnn_size", 16, "Size of each model layer.")
+tf.app.flags.DEFINE_integer("num_layers", 1, "Number of layers in the model.")
 tf.app.flags.DEFINE_string("data_dir", "data", "Data directory")
 tf.app.flags.DEFINE_string("train_dir", "train", "Training directory.")
 tf.app.flags.DEFINE_string("logs_dir", "logs", "Logs directory.")
@@ -38,7 +36,7 @@ tf.app.flags.DEFINE_integer("max_train_data_size", 0,
                             "Limit on the size of training data (0: no limit).")
 tf.app.flags.DEFINE_integer("steps_per_checkpoint", 200,
                             "How many training steps to do per checkpoint.")
-tf.app.flags.DEFINE_boolean("decode", True,
+tf.app.flags.DEFINE_boolean("decode", False,
                             "Set to True for interactive decoding.")
 tf.app.flags.DEFINE_boolean("self_test", False,
                             "Run a self-test if this is set to True.")
@@ -47,11 +45,17 @@ tf.app.flags.DEFINE_boolean("use_fp16", False,
 
 FLAGS = tf.app.flags.FLAGS
 
+def gen_data(encoder_steps, decoder_steps):
+    return data_utils.generate_data(np.sin, np.linspace(0, 100, 10000), [(0, 1, 0, 16),
+                                                              (0, 1, 0, 16),
+                                                              (0, 1, 0, 16),
+                                                              (0, 1, 0, 16),
+                                                              ], encoder_steps, decoder_steps, seperate=False)
 
-
-def create_model(session,feed_forward, train_model, encoder_steps, decoder_steps, batch_size):
+def create_model(session,feed_forward, train_model, encoder_steps, decoder_steps, batch_size, rnn_size, num_layers,learning_rate,learning_rate_decay_factor, input_size, max_gradient_norm):
     parameters = None
-    model = Seq2SeqModel(parameters,feed_forward, train_model, encoder_steps, decoder_steps, batch_size)
+    model = Seq2SeqModel(parameters,feed_forward, train_model, encoder_steps, decoder_steps, batch_size,
+                         rnn_size, num_layers,learning_rate,learning_rate_decay_factor, input_size, max_gradient_norm)
     if not os.path.exists(FLAGS.train_dir):
         os.makedirs(FLAGS.train_dir)
     ckpt = tf.train.get_checkpoint_state(FLAGS.train_dir)
@@ -73,15 +77,19 @@ def train():
 
   with tf.Session() as sess:
     # Create model.
-    print("Creating %d layers of %d units." % (FLAGS.num_layers, FLAGS.size))
+    print("Creating %d layers of %d units." % (FLAGS.num_layers, FLAGS.rnn_size))
 
-    encoder_steps = 53
-    decoder_steps = 37
-    batch_size = 23
+    #allowed to be varied between training and decoding
+    encoder_steps = 30
+    decoder_steps = 30
+
+    #Set for training
     train_model = True
     feed_forward = False
+    input_size = 1
 
-    model = create_model(sess, feed_forward, train_model, encoder_steps, decoder_steps, batch_size)
+    model = create_model(sess, feed_forward, train_model, encoder_steps, decoder_steps, FLAGS.batch_size,
+                         FLAGS.rnn_size, FLAGS.num_layers,FLAGS.learning_rate,FLAGS.learning_rate_decay_factor, input_size, FLAGS.max_gradient_norm)
 
     train_writer=tf.train.SummaryWriter(os.path.join(FLAGS.logs_dir,'train'),sess.graph)
     summary_op = tf.merge_all_summaries()
@@ -92,17 +100,7 @@ def train():
     #dev_set = test_data?
     #train_set = get_data
 
-    X, y = data_utils.generate_data(np.sin, np.linspace(0, 100, 10000), [(0, 1, 0, 16),
-                                                              (0, 1, 0, 16),
-                                                              (0, 1, 0, 16),
-                                                              (0, 1, 0, 16),
-                                                              ], encoder_steps, decoder_steps, seperate=False)
-    #X['test'][9960][23]
-    #y['test'][9960][31]
-    #Replace with minibatch sizes?
-
-    #train_bucket_sizes = [len(train_set[b]) for b in xrange(len(_buckets))]
-    #train_total_size = float(sum(train_bucket_sizes))
+    X, y = gen_data(encoder_steps, decoder_steps)
 
     # This is the training loop.
     step_time, loss = 0.0, 0.0
@@ -131,11 +129,11 @@ def train():
         # Print statistics for the previous epoch.
         perplexity = (loss) if loss < 300 else float("inf")
         print ("global step %d learning rate %.4f step-time %.2f Batch average MSE loss "
-               "%.2f" % (model.global_step.eval(), model.learning_rate.eval(),
+               "%.4f" % (model.global_step.eval(), model.learning_rate.eval(),
                          step_time, perplexity))
         # Decrease learning rate if no improvement was seen over last 3 times.
         decrement_timestep = 3
-        if len(previous_losses) > decrement_timestep-1 and loss > max(previous_losses[-decrement_timestep:]):
+        if len(previous_losses) > decrement_timestep-1 and loss > 0.95*(max(previous_losses[-decrement_timestep:])): #0.95 is float fudge factor
           sess.run(model.learning_rate_decay_op)
         previous_losses.append(loss)
         # Save checkpoint and zero timer and loss.
@@ -144,6 +142,8 @@ def train():
 
         model.saver.save(sess, checkpoint_path, global_step=model.global_step)
         step_time, loss = 0.0, 0.0
+        if perplexity < 0.02:
+            break
 
 
         # Run evals on development set and print their perplexity.
@@ -159,23 +159,26 @@ def train():
 
 
 def decode():
+
+  tf.reset_default_graph()
+
   with tf.Session() as sess:
     # Create model and load parameters.
-    encoder_steps = 40
-    decoder_steps = 50
+    #can be varied between training and decoding
+    encoder_steps = 100
+    decoder_steps = 500
 
+    #set for decoding
     train_model = False
     feed_forward = False
-    # HACK
+    input_size = 1
 
-    model = create_model(sess, feed_forward, train_model, encoder_steps, decoder_steps, 1)
+    model = create_model(sess, feed_forward, train_model, encoder_steps, decoder_steps, 1,
+                         FLAGS.rnn_size, FLAGS.num_layers, FLAGS.learning_rate, FLAGS.learning_rate_decay_factor,
+                         input_size, FLAGS.max_gradient_norm)
     model.batch_size = 1  # One string for testing
 
-    X, y = data_utils.generate_data(np.sin, np.linspace(0, 100, 10000), [(0, 1, 0, 16),
-                                                                   (0, 1, 0, 16),
-                                                                   (0, 1, 0, 16),
-                                                                   (0, 1, 0, 16),
-                                                                   ], encoder_steps, decoder_steps, seperate=False)
+    X, y = gen_data(encoder_steps, decoder_steps)
     encoder_inputs, decoder_inputs, target_weights = model.get_batch(X['train'], y['train'])
     true_output = np.copy(decoder_inputs)
     for i in range(decoder_steps):
@@ -184,12 +187,7 @@ def decode():
                                                       feed_forward, train_model)
 
     print output_logits
-      #I see two issues here:
-      #1: training with feed forward is bad
-      #2: the output is a list that is rnn_size wide. I need output projection?
 
-      #Fix in this order
-      #I created a monster. The average of all input_size is the correct answer
     output = []
     for l in range(len(output_logits)):
         output.append(np.average(output_logits[l]))
@@ -252,6 +250,7 @@ def main(_):
     decode()
   else:
     train()
+    decode()
 
 if __name__ == "__main__":
   tf.app.run()

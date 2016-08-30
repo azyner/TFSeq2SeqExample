@@ -12,19 +12,18 @@ class Seq2SeqModel(object):
     #TODO Alex Thursday:
     # Separate training bool and feed_forward_track bool
     # Add warning for not traning, and feed_forward
-    def __init__(self, parameters, feed_forward, train, encoder_steps, decoder_steps, batch_size):
+    def __init__(self, parameters, feed_forward, train, encoder_steps, decoder_steps, batch_size,
+                 rnn_size, num_layers,learning_rate,learning_rate_decay_factor, input_size, max_gradient_norm):
         #feed_forward: whether or not to use a loopback function and feed the last ouput to the next input during sequence generation
         #train: train the model
 
-        max_gradient_norm = 5.0
-        size = 83
-        num_layers = 3
+        self.max_gradient_norm = max_gradient_norm
+        self.rnn_size = rnn_size
+        self.num_layers = num_layers
         dtype = tf.float32
-        learning_rate = 0.05
-        learning_rate_decay_factor = 0.9
 
         self.batch_size = batch_size
-        self.input_size = 1
+        self.input_size = input_size
         self.encoder_steps = encoder_steps
         self.decoder_steps = decoder_steps
         self.learning_rate = tf.Variable(float(learning_rate), trainable=False)
@@ -35,25 +34,17 @@ class Seq2SeqModel(object):
         #as the rnn layers output values of size (layer width) and we need it to be the same size as the input
         #output_projection is used to condense
 
-        w = tf.get_variable("proj_w", [size, self.input_size])
+        w = tf.get_variable("proj_w", [self.rnn_size, self.input_size])
         b = tf.get_variable("proj_b", [self.input_size])
         output_projection = (w, b)
-
-        #TODO
-        #killall:
-        # buckets - used for different length strings, sort into buckets to minimize badding but keep enough for a batch
-        # output_projection - used to project from a smaller word2vec to a full vocab vector. Useless here
-        #
-        #Understand:
-        #forward only. What is forward only? Data use? Should I disable during training, and enable during validation/generation?
 
         #define layers here
         #input, linear RNN RNN linear etc
 
-        single_cell = tf.nn.rnn_cell.BasicLSTMCell(size)
+        single_cell = tf.nn.rnn_cell.BasicLSTMCell(self.rnn_size)
         cell = single_cell
-        if num_layers > 1:
-          cell = tf.nn.rnn_cell.MultiRNNCell([single_cell] * num_layers)
+        if self.num_layers > 1:
+          cell = tf.nn.rnn_cell.MultiRNNCell([single_cell] * self.num_layers)
 
         def simple_loop_function(prev, _):
             if output_projection is not None:
@@ -144,13 +135,12 @@ class Seq2SeqModel(object):
         #self.outputs is a list of decoder_steps+1 of [size batch x rnn_size]
         if output_projection is not None:
             self.outputs = [
-                    tf.matmul(output, output_projection[0]) + output_projection[1]
+                    nn_ops.xw_plus_b(output, output_projection[0], output_projection[1])
                     for output in self.outputs
                 ]
 
         def RMSE(x,y):
             return  tf.sqrt(tf.reduce_mean(tf.square(tf.sub(y, x))))
-        #weights = np.ones(len(self.target))#list of 1's the size of self.target
 
         # TODO There are several types of cost functions to compare tracks. Implement many
         # Mainly, average MSE over the whole track, or just at a horizon time (t+10 or something)
@@ -165,7 +155,7 @@ class Seq2SeqModel(object):
             self.updates = []
             opt = tf.train.GradientDescentOptimizer(self.learning_rate)
             gradients = tf.gradients(self.losses, params)
-            clipped_gradients, norm = tf.clip_by_global_norm(gradients, max_gradient_norm)
+            clipped_gradients, norm = tf.clip_by_global_norm(gradients, self.max_gradient_norm)
 
             self.gradient_norms.append(norm)
             self.updates.append(opt.apply_gradients(
