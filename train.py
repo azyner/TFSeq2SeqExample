@@ -27,7 +27,7 @@ tf.app.flags.DEFINE_float("max_gradient_norm", 5.0,
                           "Clip gradients to this norm.")
 tf.app.flags.DEFINE_integer("batch_size", 64,
                             "Batch size to use during training.")
-tf.app.flags.DEFINE_integer("rnn_size", 16, "Size of each model layer.")
+tf.app.flags.DEFINE_integer("rnn_size", 2, "Size of each model layer.")
 tf.app.flags.DEFINE_integer("num_layers", 1, "Number of layers in the model.")
 tf.app.flags.DEFINE_string("data_dir", "data", "Data directory")
 tf.app.flags.DEFINE_string("train_dir", "train", "Training directory.")
@@ -43,22 +43,42 @@ tf.app.flags.DEFINE_boolean("self_test", False,
                             "Run a self-test if this is set to True.")
 tf.app.flags.DEFINE_boolean("use_fp16", False,
                             "Train using fp16 instead of fp32.")
+tf.app.flags.DEFINE_boolean("gen_random_input_data", False,
+                            "Generate data from function using varying random parameters (True) or a constant, single function")
+tf.app.flags.DEFINE_integer("train_encoder_steps", 30, "How many steps of data to feed the model during training.")
+tf.app.flags.DEFINE_integer("train_decoder_steps", 40, "How many steps of data the model generates during training.")
+tf.app.flags.DEFINE_integer("test_encoder_steps", 100, "How many steps of data the model generates during testing.")
+tf.app.flags.DEFINE_integer("test_decoder_steps", 500, "How many steps of data the model generates during testing.")
 
 FLAGS = tf.app.flags.FLAGS
+
+def get_title_from_params():
+    return ('S2S' +
+            'tre' + str(FLAGS.train_encoder_steps) + '-'
+            'trd' + str(FLAGS.train_decoder_steps) + '-'
+            'tse' + str(FLAGS.test_encoder_steps) + '-'
+            'tsd' + str(FLAGS.test_decoder_steps) + '-'
+            'rnn' + str(FLAGS.rnn_size) + '-'
+            'nl'  + str(FLAGS.num_layers) + '-'
+            'bs' + str(FLAGS.batch_size) + '-'
+            'lr' + str(FLAGS.learning_rate)+ '-'
+            'ld' + str(FLAGS.learning_rate_decay_factor))
 
 def gen_data(encoder_steps, decoder_steps):
     random.seed = 42
     num_functions = 20 #number of different functions
     function_set = []
-    #function tuple is in order: a+b*fct(c+d*x)
-    for i in range(num_functions):
-        function_set.append((
-            random.choice(np.linspace(-0.5,0.5,10)), #amplitude offset
-            random.choice(np.linspace(0.1,1.5,10)), #amplitude
-            random.choice(np.linspace(0,10,10)), #frequency offset
-            random.choice(np.linspace(8,32,24)),# frequency (/2pi)
-        ))
+    if FLAGS.gen_random_input_data:
+        #function tuple is in order: a+b*fct(c+d*x)
+        for i in range(num_functions):
+            function_set.append((
+                random.choice(np.linspace(-0.5,0.5,10)), #amplitude offset
+                random.choice(np.linspace(0.1,1.5,10)), #amplitude
+                random.choice(np.linspace(0,10,10)), #frequency offset
+                random.choice(np.linspace(8,32,24)),# frequency (/2pi)
+            ))
     function_set.append((0, 1, 0, 16))
+
     return data_utils.generate_data(np.sin, np.linspace(0, 100, 10000),function_set,
                                     encoder_steps, decoder_steps, seperate=False)
 
@@ -68,7 +88,9 @@ def create_model(session,feed_forward, train_model, encoder_steps, decoder_steps
                          rnn_size, num_layers,learning_rate,learning_rate_decay_factor, input_size, max_gradient_norm)
     if not os.path.exists(FLAGS.train_dir):
         os.makedirs(FLAGS.train_dir)
-    ckpt = tf.train.get_checkpoint_state(FLAGS.train_dir)
+    if not os.path.exists(os.path.join(FLAGS.train_dir,get_title_from_params())):
+        os.makedirs(os.path.join(FLAGS.train_dir,get_title_from_params()))
+    ckpt = tf.train.get_checkpoint_state(os.path.join(FLAGS.train_dir,get_title_from_params()))
     if ckpt and tf.gfile.Exists(ckpt.model_checkpoint_path):
         print("Reading model parameters from %s" % ckpt.model_checkpoint_path)
         model.saver.restore(session, ckpt.model_checkpoint_path)
@@ -80,6 +102,7 @@ def create_model(session,feed_forward, train_model, encoder_steps, decoder_steps
 
 
 def train():
+  print get_title_from_params()
   """Train a en->fr translation model using WMT data."""
   # Prepare WMT data.
   #PREPARE DATA INTO:
@@ -90,8 +113,8 @@ def train():
     print("Creating %d layers of %d units." % (FLAGS.num_layers, FLAGS.rnn_size))
 
     #allowed to be varied between training and decoding
-    encoder_steps = 100
-    decoder_steps = 100
+    encoder_steps = FLAGS.train_encoder_steps
+    decoder_steps = FLAGS.train_decoder_steps
 
     #Set for training
     train_model = True
@@ -101,7 +124,7 @@ def train():
     model = create_model(sess, feed_forward, train_model, encoder_steps, decoder_steps, FLAGS.batch_size,
                          FLAGS.rnn_size, FLAGS.num_layers,FLAGS.learning_rate,FLAGS.learning_rate_decay_factor, input_size, FLAGS.max_gradient_norm)
 
-    train_writer=tf.train.SummaryWriter(os.path.join(FLAGS.logs_dir,'train'),sess.graph)
+    train_writer=tf.train.SummaryWriter(os.path.join(FLAGS.logs_dir,'train'+get_title_from_params()),sess.graph)
     summary_op = tf.merge_all_summaries()
 
     # Read data into buckets and compute their sizes.
@@ -147,7 +170,7 @@ def train():
           sess.run(model.learning_rate_decay_op)
         previous_losses.append(loss)
         # Save checkpoint and zero timer and loss.
-        checkpoint_path = os.path.join(FLAGS.train_dir, "TFseq2seqSinusoid.ckpt")
+        checkpoint_path = os.path.join(os.path.join(FLAGS.train_dir,get_title_from_params()), "TFseq2seqSinusoid.ckpt")
 
 
         model.saver.save(sess, checkpoint_path, global_step=model.global_step)
@@ -175,8 +198,8 @@ def decode():
   with tf.Session() as sess:
     # Create model and load parameters.
     #can be varied between training and decoding
-    encoder_steps = 100
-    decoder_steps = 500
+    encoder_steps = FLAGS.test_encoder_steps
+    decoder_steps = FLAGS.test_decoder_steps
 
     #set for decoding
     train_model = False
@@ -226,7 +249,7 @@ def decode():
     output_range = y_range[len(input_plot):len(input_plot)+len(output_logits)]
     plt_title = "TFSeq2Seq" + "rnn_size " + str(FLAGS.rnn_size) + " n_layers " + str(FLAGS.num_layers)
 
-    if False: #Plot HTML bokeh
+    if True: #Plot HTML bokeh
         from bokeh.plotting import figure, output_file, show
         output_file("traces.html")
         p1 = figure(title=plt_title, x_axis_label='x', y_axis_label='y',
@@ -249,7 +272,7 @@ def decode():
         plt.plot(output_range, output_gen_plt)
         legend_str.append(['Generated Output'])
         plt.legend(legend_str, loc='upper left')
-        fig_path = os.path.join(FLAGS.plot_dir,plt_title+'.png')
+        fig_path = os.path.join(FLAGS.plot_dir,get_title_from_params()+'.png')
         plt.savefig(fig_path,bbox_inches='tight')
         #plt.show()
 
