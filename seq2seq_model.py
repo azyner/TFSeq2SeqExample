@@ -41,7 +41,7 @@ class Seq2SeqModel(object):
         #define layers here
         #input, linear RNN RNN linear etc
 
-        single_cell = tf.nn.rnn_cell.BasicLSTMCell(self.rnn_size)
+        single_cell = tf.nn.rnn_cell.BasicLSTMCell(self.rnn_size,state_is_tuple=True) #Default should be True, but TF 0.9 was throwing a warning, implying it was false
         cell = single_cell
         if self.num_layers > 1:
           cell = tf.nn.rnn_cell.MultiRNNCell([single_cell] * self.num_layers)
