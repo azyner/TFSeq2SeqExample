@@ -326,6 +326,7 @@ def run_many():
                         FLAGS.batch_size = batch_size
                         FLAGS.learning_rate = learning_rate
                         train()
+			decode()
 
 def main(_):
   if FLAGS.run_many:
