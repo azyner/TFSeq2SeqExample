@@ -1,5 +1,7 @@
 
 # Special vocabulary symbols. Artifact from the vocab system. I don't know a good way to replace this in a linear system
+import numpy as np
+import pandas as pd
 
 _PAD = 0.0
 _GO = 999
@@ -8,10 +10,10 @@ _GO = 999
 #_START_VOCAB = [_PAD, _GO, _EOS, _UNK]
 
 PAD_ID = 0.0
-GO_ID = -2.0
+GO_ID = -5.0
 EOS_ID = 2.0
 UNK_ID = 3.0
-
+data_linspace_tuple = (0, 100, 10000)
 
 import numpy as np
 import pandas as pd
@@ -114,7 +116,7 @@ def generate_data(fct, x, fct_mod, encoder_steps, decoder_steps, seperate=False)
                 val_y.extend(w_val[1])
                 test_y.extend(w_test[1])
             else:
-                #last function track, use for training
+                #last function track, use for testing
                 if not isinstance(data, pd.DataFrame):
                     data = pd.DataFrame(data)
                 test_x, test_y = rnn_data(data, encoder_steps, decoder_steps)
@@ -145,8 +147,7 @@ def generate_sequence(regressor, test_sequence, seed_timesteps, prediction_lengt
 
 if __name__ == "__main__":
     #%matplotlib inline
-    import numpy as np
-    import pandas as pd
+
     import tensorflow as tf
     from matplotlib import pyplot as plt
 
@@ -168,7 +169,8 @@ if __name__ == "__main__":
     BATCH_SIZE = 100
     PRINT_STEPS = TRAINING_STEPS / 100
 
-    X, y = generate_data(np.sin, np.linspace(0, 100, 10000), [(0, 1, 0, 16),
+    X, y = generate_data(np.sin, np.linspace(data_linspace_tuple[0],data_linspace_tuple[1],data_linspace_tuple[2])
+                                                         , [(0, 1, 0, 16),
                                                             (0, 1, 0, 16),
                                                             (0, 1, 0, 16),
                                                             (0, 1, 0, 16),

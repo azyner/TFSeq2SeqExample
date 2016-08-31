@@ -27,11 +27,12 @@ tf.app.flags.DEFINE_float("max_gradient_norm", 5.0,
                           "Clip gradients to this norm.")
 tf.app.flags.DEFINE_integer("batch_size", 64,
                             "Batch size to use during training.")
-tf.app.flags.DEFINE_integer("rnn_size", 2, "Size of each model layer.")
+tf.app.flags.DEFINE_integer("rnn_size", 16, "Size of each model layer.")
 tf.app.flags.DEFINE_integer("num_layers", 1, "Number of layers in the model.")
 tf.app.flags.DEFINE_string("data_dir", "data", "Data directory")
 tf.app.flags.DEFINE_string("train_dir", "train", "Training directory.")
 tf.app.flags.DEFINE_string("logs_dir", "logs", "Logs directory.")
+tf.app.flags.DEFINE_string("plot_dir", "plot", "Output plots directory.")
 tf.app.flags.DEFINE_integer("max_train_data_size", 0,
                             "Limit on the size of training data (0: no limit).")
 tf.app.flags.DEFINE_integer("steps_per_checkpoint", 200,
@@ -46,11 +47,20 @@ tf.app.flags.DEFINE_boolean("use_fp16", False,
 FLAGS = tf.app.flags.FLAGS
 
 def gen_data(encoder_steps, decoder_steps):
-    return data_utils.generate_data(np.sin, np.linspace(0, 100, 10000), [(0, 1, 0, 16),
-                                                              (0, 1, 0, 16),
-                                                              (0, 1, 0, 16),
-                                                              (0, 1, 0, 16),
-                                                              ], encoder_steps, decoder_steps, seperate=False)
+    random.seed = 42
+    num_functions = 20 #number of different functions
+    function_set = []
+    #function tuple is in order: a+b*fct(c+d*x)
+    for i in range(num_functions):
+        function_set.append((
+            random.choice(np.linspace(-0.5,0.5,10)), #amplitude offset
+            random.choice(np.linspace(0.1,1.5,10)), #amplitude
+            random.choice(np.linspace(0,10,10)), #frequency offset
+            random.choice(np.linspace(8,32,24)),# frequency (/2pi)
+        ))
+    function_set.append((0, 1, 0, 16))
+    return data_utils.generate_data(np.sin, np.linspace(0, 100, 10000),function_set,
+                                    encoder_steps, decoder_steps, seperate=False)
 
 def create_model(session,feed_forward, train_model, encoder_steps, decoder_steps, batch_size, rnn_size, num_layers,learning_rate,learning_rate_decay_factor, input_size, max_gradient_norm):
     parameters = None
@@ -80,8 +90,8 @@ def train():
     print("Creating %d layers of %d units." % (FLAGS.num_layers, FLAGS.rnn_size))
 
     #allowed to be varied between training and decoding
-    encoder_steps = 30
-    decoder_steps = 30
+    encoder_steps = 100
+    decoder_steps = 100
 
     #Set for training
     train_model = True
@@ -179,7 +189,7 @@ def decode():
     model.batch_size = 1  # One string for testing
 
     X, y = gen_data(encoder_steps, decoder_steps)
-    encoder_inputs, decoder_inputs, target_weights = model.get_batch(X['train'], y['train'])
+    encoder_inputs, decoder_inputs, target_weights = model.get_batch(X['test'], y['test'])
     true_output = np.copy(decoder_inputs)
     for i in range(decoder_steps):
         decoder_inputs[i+1][0] = 0
@@ -201,26 +211,47 @@ def decode():
     #re-format graph input
     input_plot = []
     for l in range(len(encoder_inputs)):
-        input_plot.append(encoder_inputs[l])
+        input_plot.append(encoder_inputs[l][0])
     output_gen_plt = []
     for l in range(len(output_logits)):
         output_gen_plt.append(np.average(output_logits[l][0]))
     true_output_plot = []
     for l in range(len(true_output)):
-        true_output_plot.append(true_output[l])
+        true_output_plot.append(true_output[l][0])
 
-    input_range = range(0,len(input_plot))
-    output_range = range(len(input_plot),len(input_plot)+len(output_logits))
+    y_range = np.linspace(data_utils.data_linspace_tuple[0],
+                          data_utils.data_linspace_tuple[1],
+                          data_utils.data_linspace_tuple[2])
+    input_range = y_range[0:len(input_plot)]
+    output_range = y_range[len(input_plot):len(input_plot)+len(output_logits)]
+    plt_title = "TFSeq2Seq" + "rnn_size " + str(FLAGS.rnn_size) + " n_layers " + str(FLAGS.num_layers)
 
-    from bokeh.plotting import figure, output_file, show
-    output_file("traces.html")
-    p1 = figure(title="TFSeq2Seq", x_axis_label='x', y_axis_label='y')
-    p1.line(input_range, input_plot, legend="Input.", line_width=2,color='black')
-    p1.line(output_range, true_output_plot, legend="True Output.", line_width=2,color='blue')
-    p1.line(output_range, output_gen_plt, legend="Generated Output.", line_width=2,color='red')
-    show(p1)
-    print 'break'
+    if False: #Plot HTML bokeh
+        from bokeh.plotting import figure, output_file, show
+        output_file("traces.html")
+        p1 = figure(title=plt_title, x_axis_label='x', y_axis_label='y',
+                    plot_width=800, plot_height=800)  # ~half a 1080p screen
+        p1.line(input_range, input_plot, legend="Input.", line_width=2,color='black')
+        p1.line(output_range, true_output_plot, legend="True Output.", line_width=2,color='blue')
+        p1.line(output_range, output_gen_plt, legend="Generated Output.", line_width=2,color='red')
+        show(p1)
 
+    if True: #Use matplotlib to plot PNG
+        if not os.path.exists(FLAGS.plot_dir):
+            os.makedirs(FLAGS.plot_dir)
+        legend_str = []
+        import matplotlib.pyplot as plt
+        plt.figure(figsize=(20,10))
+        plt.plot(input_range, input_plot)
+        legend_str.append(['Input'])
+        plt.plot(output_range, true_output_plot)
+        legend_str.append(['True Output'])
+        plt.plot(output_range, output_gen_plt)
+        legend_str.append(['Generated Output'])
+        plt.legend(legend_str, loc='upper left')
+        fig_path = os.path.join(FLAGS.plot_dir,plt_title+'.png')
+        plt.savefig(fig_path,bbox_inches='tight')
+        #plt.show()
 
 def self_test():
   """Test the translation model."""
