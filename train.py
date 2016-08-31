@@ -39,7 +39,7 @@ tf.app.flags.DEFINE_integer("steps_per_checkpoint", 200,
                             "How many training steps to do per checkpoint.")
 tf.app.flags.DEFINE_boolean("decode", False,
                             "Set to True for interactive decoding.")
-tf.app.flags.DEFINE_boolean("run_many", False,
+tf.app.flags.DEFINE_boolean("run_many", True,
                             "Run a list of many jobs")
 tf.app.flags.DEFINE_boolean("self_test", False,
                             "Run a self-test if this is set to True.")
@@ -82,7 +82,16 @@ def gen_data(encoder_steps, decoder_steps):
             ))
     function_set.append((0, 1, 0, 16))
 
-    return data_utils.generate_data(np.sin, np.linspace(0, 100, 10000),function_set,
+    import scipy.signal as spsig
+
+    #fct = np.sin
+    #fct = spsig.sawtooth
+    fct = spsig.square
+
+    def doublesquare(t):
+        return 0.5*spsig.square(t,duty=0.75) - 0.5*spsig.square(2*t,duty=0.25)
+
+    return data_utils.generate_data(fct, np.linspace(0, 100, 10000),function_set,
                                     encoder_steps, decoder_steps, seperate=False)
 
 def create_model(session,feed_forward, train_model, encoder_steps, decoder_steps, batch_size, rnn_size, num_layers,learning_rate,learning_rate_decay_factor, input_size, max_gradient_norm):
@@ -252,7 +261,7 @@ def decode():
     output_range = y_range[len(input_plot):len(input_plot)+len(output_logits)]
     plt_title = "TFSeq2Seq" + "rnn_size " + str(FLAGS.rnn_size) + " n_layers " + str(FLAGS.num_layers)
 
-    if True: #Plot HTML bokeh
+    if False: #Plot HTML bokeh
         from bokeh.plotting import figure, output_file, show
         output_file("traces.html")
         p1 = figure(title=plt_title, x_axis_label='x', y_axis_label='y',
