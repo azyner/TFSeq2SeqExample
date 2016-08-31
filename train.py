@@ -85,8 +85,8 @@ def gen_data(encoder_steps, decoder_steps):
     import scipy.signal as spsig
 
     #fct = np.sin
-    #fct = spsig.sawtooth
-    fct = spsig.square
+    fct = spsig.sawtooth
+    #fct = spsig.square
 
     def doublesquare(t):
         return 0.5*spsig.square(t,duty=0.75) - 0.5*spsig.square(2*t,duty=0.25)
@@ -114,6 +114,7 @@ def create_model(session,feed_forward, train_model, encoder_steps, decoder_steps
 
 
 def train():
+  tf.reset_default_graph()
   print get_title_from_params()
   """Train a en->fr translation model using WMT data."""
   # Prepare WMT data.
