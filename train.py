@@ -21,7 +21,7 @@ import time
 
 
 tf.app.flags.DEFINE_float("learning_rate", 0.5, "Learning rate.")
-tf.app.flags.DEFINE_float("learning_rate_decay_factor", 0.9,
+tf.app.flags.DEFINE_float("learning_rate_decay_factor", 0.7,
                           "Learning rate decays by this much.")
 tf.app.flags.DEFINE_float("max_gradient_norm", 5.0,
                           "Clip gradients to this norm.")
@@ -39,6 +39,8 @@ tf.app.flags.DEFINE_integer("steps_per_checkpoint", 200,
                             "How many training steps to do per checkpoint.")
 tf.app.flags.DEFINE_boolean("decode", False,
                             "Set to True for interactive decoding.")
+tf.app.flags.DEFINE_boolean("run_many", False,
+                            "Run a list of many jobs")
 tf.app.flags.DEFINE_boolean("self_test", False,
                             "Run a self-test if this is set to True.")
 tf.app.flags.DEFINE_boolean("use_fp16", False,
@@ -49,6 +51,7 @@ tf.app.flags.DEFINE_integer("train_encoder_steps", 30, "How many steps of data t
 tf.app.flags.DEFINE_integer("train_decoder_steps", 40, "How many steps of data the model generates during training.")
 tf.app.flags.DEFINE_integer("test_encoder_steps", 100, "How many steps of data the model generates during testing.")
 tf.app.flags.DEFINE_integer("test_decoder_steps", 500, "How many steps of data the model generates during testing.")
+
 
 FLAGS = tf.app.flags.FLAGS
 
@@ -295,11 +298,30 @@ def self_test():
       model.step(sess, encoder_inputs, decoder_inputs, target_weights,
                  bucket_id, False)
 
+def run_many():
 
+    rnn_size_range = [2,4,8,16,32]
+    num_layers_range = [1,2,3]
+    random_range = [True, False]
+    batch_size_range = [16, 32, 64]
+    learning_rate_range = [0.9, 0.5, 0.1]
+    for size in rnn_size_range:
+        for layers in num_layers_range:
+            for random in random_range:
+                for batch_size in batch_size_range:
+                    for learning_rate in learning_rate_range:
+                        FLAGS.rnn_size = size
+                        FLAGS.num_layers = layers
+                        FLAGS.random = random
+                        FLAGS.batch_size = batch_size
+                        FLAGS.learning_rate = learning_rate
+                        train()
 
 def main(_):
-  if FLAGS.self_test:
-    self_test()
+  if FLAGS.run_many:
+    run_many()
+  #if FLAGS.self_test:
+  #  self_test()
   elif FLAGS.decode:
     decode()
   else:
