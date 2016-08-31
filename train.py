@@ -314,12 +314,13 @@ def run_many():
     num_layers_range = [1,2,3]
     random_range = [True, False]
     batch_size_range = [16, 32, 64]
-    learning_rate_range = [0.9, 0.5, 0.1]
-    for size in rnn_size_range:
-        for layers in num_layers_range:
-            for random in random_range:
-                for batch_size in batch_size_range:
-                    for learning_rate in learning_rate_range:
+    learning_rate_range = [0.5]
+
+    for batch_size in batch_size_range:
+        for learning_rate in learning_rate_range:
+            for size in rnn_size_range:
+                for layers in num_layers_range:
+                    for random in random_range:
                         FLAGS.rnn_size = size
                         FLAGS.num_layers = layers
                         FLAGS.random = random
