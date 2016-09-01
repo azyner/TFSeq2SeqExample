@@ -1,17 +1,17 @@
 import tensorflow as tf
 import numpy as np
 import random
-from six.moves import xrange  # pylint: disable=redefined-builtin
 import data_utils
-from tensorflow.python.ops import math_ops
 from tensorflow.python.ops import nn_ops
+
 
 class Seq2SeqModel(object):
 
     def __init__(self, parameters, feed_forward, train, encoder_steps, decoder_steps, batch_size,
                  rnn_size, num_layers,learning_rate,learning_rate_decay_factor, input_size, max_gradient_norm):
-        #feed_forward: whether or not to use a loopback function and feed the last ouput to the next input during sequence generation
-        #train: train the model
+        # feed_forward: whether or not to use a loopback function and therefore feed the last ouput
+        #                to the next input during sequence generation
+        # train: train the model (or test)
 
         self.max_gradient_norm = max_gradient_norm
         self.rnn_size = rnn_size
@@ -29,18 +29,22 @@ class Seq2SeqModel(object):
         if feed_forward and not train:
             print "Warning, feeding the model future sequence data (feed_forward) is not recommended when the model is not training."
 
-        #The output of the multiRNN is the size of rnn_size, and it needs to match the input size, or loopback makes no sense
-        #Here a single layer without activation function is used, but it can be any number of non RNN layers / functions
+        # The output of the multiRNN is the size of rnn_size, and it needs to match the input size, or loopback makes
+        #  no sense. Here a single layer without activation function is used, but it can be any number of
+        #  non RNN layers / functions
         w = tf.get_variable("proj_w", [self.rnn_size, self.input_size])
         b = tf.get_variable("proj_b", [self.input_size])
         output_projection = (w, b)
 
-        #define layers here
-        #input, linear RNN RNN linear etc
-        single_cell = tf.nn.rnn_cell.BasicLSTMCell(self.rnn_size,state_is_tuple=True) #Default should be True, but TF 0.9 was throwing a warning, implying it was false
+        # define layers here
+        # input, linear RNN RNN linear etc
+
+        # Default should be True, but TF 0.9 was throwing a warning, implying it was false
+        single_cell = tf.nn.rnn_cell.BasicLSTMCell(self.rnn_size,state_is_tuple=True)
         cell = single_cell
         if self.num_layers > 1:
-          cell = tf.nn.rnn_cell.MultiRNNCell([single_cell] * self.num_layers,state_is_tuple=True) #This defaults to False in TF0.9, and thus produces a warning....
+            # state_is_tuple defaults to False in TF0.9, and thus produces a warning....
+            cell = tf.nn.rnn_cell.MultiRNNCell([single_cell] * self.num_layers,state_is_tuple=True)
 
         def simple_loop_function(prev, _):
             if output_projection is not None:
@@ -80,21 +84,18 @@ class Seq2SeqModel(object):
             self.encoder_inputs.append(tf.placeholder(tf.float32, shape=[batch_size, 1],
                                                     name="encoder{0}".format(i)))
         for i in xrange(self.decoder_steps + 1):
-        #for i in xrange(self.decoder_steps):
             self.decoder_inputs.append(tf.placeholder(tf.float32, shape=[batch_size, 1],
                                                     name="decoder{0}".format(i)))
             self.target_weights.append(tf.placeholder(dtype, shape=[batch_size],
                                                     name="weight{0}".format(i)))
 
-        #self.target = tf.placeholder(tf.float32,shape=[batch_size, self.input_size],name="target")
-
         # Our targets are decoder inputs shifted by one.
-        #TODO Alex Double check this
-        #PLACEHOLDER HACK - because I don't believe <go> or <eos> symbols belong in time series data, I am repeating the
-        #last decoder input for the target until I replace it with something better.
-        #I think the correct solution here is to actually capture the last ignored output, and use it as the first decoder symbol
-        #instead of the <go> symbol.
-        #I'm not sure I'm allowed to tie the unused output to the decoder feed, so I'm doing this for now.
+        # TODO Alex Double check this
+        # PLACEHOLDER HACK - because I don't believe <go> or <eos> symbols belong in time series data, I am repeating
+        # the last decoder input for the target until I replace it with something better.
+        # I think the correct solution here is to actually capture the last ignored output, and use it as the
+        # first decoder symbol instead of the <go> symbol.
+        # I'm not sure I'm allowed to tie the unused output to the decoder feed, so I'm doing this for now.
 
         targets = [self.decoder_inputs[i + 1]
                     for i in xrange(len(self.decoder_inputs) - 1)]
@@ -105,23 +106,23 @@ class Seq2SeqModel(object):
         else: #Testing
             self.outputs, self.internal_states = seq2seq_f(self.encoder_inputs, self.decoder_inputs, feed_forward)
 
-        #self.outputs is of size (batch x rnn_size) It needts to be of size (batch x input_size)
-        #output_projection goes here.
-        #self.outputs is a list of decoder_steps+1 of [size batch x rnn_size]
+        # self.outputs is a list of len(decoder_steps+1) containing [size batch x rnn_size]
+        # The output projection below reduces this to:
+        #                 a list of len(decoder_steps+1) containing [size batch x input_size]
         if output_projection is not None:
             self.outputs = [
                     nn_ops.xw_plus_b(output, output_projection[0], output_projection[1])
                     for output in self.outputs
                 ]
 
-        def RMSE(x,y):
-            return  tf.sqrt(tf.reduce_mean(tf.square(tf.sub(y, x))))
+        def rmse(x, y):
+            return tf.sqrt(tf.reduce_mean(tf.square(tf.sub(y, x))))
 
         # TODO There are several types of cost functions to compare tracks. Implement many
         # Mainly, average MSE over the whole track, or just at a horizon time (t+10 or something)
         # There's this corner alg that Social LSTM refernces, but I haven't looked into it.
 
-        self.losses = tf.nn.seq2seq.sequence_loss(self.outputs,targets,self.target_weights,softmax_loss_function=lambda x, y: RMSE(x,y))
+        self.losses = tf.nn.seq2seq.sequence_loss(self.outputs,targets,self.target_weights,softmax_loss_function=lambda x, y: rmse(x,y))
 
         # Gradients and SGD update operation for training the model.
         params = tf.trainable_variables()
@@ -141,85 +142,51 @@ class Seq2SeqModel(object):
         tf.scalar_summary('Loss',self.losses)
 
     def get_batch(self, encoder_data, decoder_data):
-        #This whole function just collects random pairs of encoder/decoder from data and adds them into a batch
-        #This is where the target weight is created, it is zero for padding, 1 for everything else
+        # This whole function just collects random pairs of encoder/decoder from data and adds them into a batch
+        # This is where the target weight is created, it is zero for padding, 1 for everything else
         batch_encoder_inputs, batch_decoder_inputs, batch_weights = [], [], []
-            #encoder_size, decoder_size = #####GLOBAL TRACK INPUT AND OUTPUT SIZE
         encoder_inputs, decoder_inputs = [], []
 
-        # Get a random batch of encoder and decoder inputs from data,
-        # pad them if needed, reverse encoder inputs and add GO to decoder.
+        # Get a random batch of encoder and decoder inputs from data, add GO to decoder.
         for _ in xrange(self.batch_size):
-            #encoder_input, decoder_input = random.choice()
             index = random.randrange(encoder_data.shape[0])
             encoder_input = encoder_data[index]
             decoder_input = decoder_data[index]
-
-            #encoder_data.size 2538 23 1
-            #decoder_data.size 2538 31 1
-
-            #Pick random int from encoder_data.size[0]
-
-            # Encoder inputs are padded and then reversed. ### ALEX ### -- HUH? Why reversed?
-            #Language works better in reverse -- dont ask
-
             encoder_inputs.append(encoder_input)
 
             # Decoder inputs get an extra "GO" symbol
-            #The fact that decoder input is a ndarray and not a list breaks this operator (+) I have chosen this re-cast to better match the original code
+            # The fact that decoder input is a ndarray and not a list breaks this operator (+), so it is recast tolist
             decoder_inputs.append([[data_utils.GO_ID]*self.input_size] + decoder_input.tolist())
 
-
-
         # Batch encoder inputs are just re-indexed encoder_inputs.
-        #TODO Alex -- how are the data re-indexed? This is convoluted and not commented
-        #It appears to be an unroll of the batch, does it swap axes?
+        # Need to re-index to make an encoder_steps long list of shape [batch input_size]
+        # currently it is a list of length batch containing shape [timesteps input_size]
 
-        #This would be easier if I can actually see the code run, and not waste time downloading 8gb of text corpus
-
-        #Looking at the input to step, I can determine the following:
-            #it is a list of input to encoder
-            #I would suggest it is in the same format as I have it currently:
-            # shape batch_size encoder_size input_size
-        #so the following should occur:
-        #Pick a track at random
-        #Do padding as necessary (GO symbol, mostly)
-        #create weights of all one except last
-        #append and repeat batch_size times
-
-        #Here encoder_inputs is a list of batch long containing arrays of shape [encoder_steps input_size]
-
-        #TODO Alex - Look at the shape of batch_weights. It appears I do need to re-format the encoder and decoder inputs
-        #to make an encoder_steps long list of shape [batch input_size]
-        #currently it is a list of length batch containing shape [timesteps input_size]
-        #batch_encoder_inputs = encoder_inputs
         for length_idx in xrange(self.encoder_steps):
             batch_encoder_inputs.append(
                     np.array([encoder_inputs[batch_idx][length_idx]
                     for batch_idx in xrange(self.batch_size)], dtype=np.float32))
-
-        # Batch decoder inputs are re-indexed decoder_inputs, we create weights.
-        #batch_decoder_inputs = decoder_inputs
 
         for length_idx in xrange(self.decoder_steps+1): # +1 for go symbol
             batch_decoder_inputs.append(
                     np.array([decoder_inputs[batch_idx][length_idx]
                     for batch_idx in xrange(self.batch_size)], dtype=np.float32))
 
-            # Create target_weights to be 0 for targets that are padding.
+            # Because of  the offset with the GO symbol, the final target is a repeat of the second last target
+            # It is therefore given weight zero, as it is not important
+            # All other targets are equally important, so they are weighted as 1.0
+            # Alex - This could be reason for the random decay I am observing
             batch_weight = np.ones(self.batch_size, dtype=np.float32)
             for batch_idx in xrange(self.batch_size):
-            # We set weight to 0 if the corresponding target is a PAD symbol.
-            # The corresponding target is decoder_input shifted by 1 forward.
                 if length_idx == self.decoder_steps:
                   batch_weight[batch_idx] = 0.0
             batch_weights.append(batch_weight)
 
-        #batch_encoder_inputs is now list of len encoder_steps, shape batch, input_size. Similarly with decoder_inputs
+        # Batch_encoder_inputs is now list of len encoder_steps, shape batch, input_size. Similarly with decoder_inputs
         return batch_encoder_inputs, batch_decoder_inputs, batch_weights
 
     def step(self, session, encoder_inputs, decoder_inputs, target_weights,
-             bucket_id, feed_forward, train_model,summary_writer=None):
+             bucket_id, feed_forward, train_model, summary_writer=None):
         """Run a step of the model feeding the given inputs.
         Args:
           session: tensorflow session to use.
@@ -246,7 +213,6 @@ class Seq2SeqModel(object):
 
         # Since our targets are decoder inputs shifted by one, we need one more.
         last_target = self.decoder_inputs[self.decoder_steps].name
-        #input_feed[last_target] = np.zeros([self.batch_size], dtype=np.int32)
         input_feed[last_target] = np.array([np.zeros(self.input_size,dtype=np.float32)]*self.batch_size)
 
         # Output feed: depends on whether we do a backward step or not.

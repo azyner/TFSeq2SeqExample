@@ -16,10 +16,10 @@ tf.app.flags.DEFINE_float("learning_rate_decay_factor", 0.7,
                           "Learning rate decays by this much.")
 tf.app.flags.DEFINE_float("max_gradient_norm", 5.0,
                           "Clip gradients to this norm.")
-tf.app.flags.DEFINE_integer("batch_size", 64,
+tf.app.flags.DEFINE_integer("batch_size", 32,
                             "Batch size to use during training.")
-tf.app.flags.DEFINE_integer("rnn_size", 2, "Size of each model layer.")
-tf.app.flags.DEFINE_integer("num_layers", 1, "Number of layers in the model.")
+tf.app.flags.DEFINE_integer("rnn_size", 16, "Size of each model layer.")
+tf.app.flags.DEFINE_integer("num_layers", 3, "Number of layers in the model.")
 tf.app.flags.DEFINE_string("data_dir", "data", "Data directory")
 tf.app.flags.DEFINE_string("train_dir", "train", "Training directory.")
 tf.app.flags.DEFINE_string("logs_dir", "logs", "Logs directory.")
@@ -56,7 +56,7 @@ def get_title_from_params():
             'bs' + str(FLAGS.batch_size) + '-'
             'lr' + str(FLAGS.learning_rate)+ '-'
             'ld' + str(FLAGS.learning_rate_decay_factor) +'-'
-            'ran' + 'T' if FLAGS.gen_random_input_data else 'F')
+            'ran' + ('T' if FLAGS.gen_random_input_data else 'F'))
 
 def gen_data(encoder_steps, decoder_steps):
     random.seed = 42
@@ -217,6 +217,7 @@ def decode():
         X, y = gen_data(encoder_steps, decoder_steps)
         encoder_inputs, decoder_inputs, target_weights = model.get_batch(X['test'], y['test'])
         true_output = np.copy(decoder_inputs)
+        # Force all decoder inputs after the 'go' symbol to zero. They should be ignored, but this is just to be sure
         for i in range(decoder_steps):
             decoder_inputs[i+1][0] = 0
         output_a, output_loss, output_logits = model.step(sess,encoder_inputs,decoder_inputs,target_weights,'''bucket_id''',
