@@ -47,6 +47,7 @@ class Seq2SeqModel(object):
             cell = tf.nn.rnn_cell.MultiRNNCell([single_cell] * self.num_layers,state_is_tuple=True)
 
         def simple_loop_function(prev, _):
+            '''Function that takes last output, and applies output projection to it'''
             if output_projection is not None:
                 prev = nn_ops.xw_plus_b(
                         prev, output_projection[0], output_projection[1])

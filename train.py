@@ -306,7 +306,7 @@ def run_many():
                     for random in random_range:
                         FLAGS.rnn_size = size
                         FLAGS.num_layers = layers
-                        FLAGS.random = random
+                        FLAGS.gen_random_input_data = random
                         FLAGS.batch_size = batch_size
                         FLAGS.learning_rate = learning_rate
                         train()
