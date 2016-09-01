@@ -65,7 +65,8 @@ def get_title_from_params():
             'nl'  + str(FLAGS.num_layers) + '-'
             'bs' + str(FLAGS.batch_size) + '-'
             'lr' + str(FLAGS.learning_rate)+ '-'
-            'ld' + str(FLAGS.learning_rate_decay_factor))
+            'ld' + str(FLAGS.learning_rate_decay_factor) +'-'
+            'ran' + 'T' if FLAGS.gen_random_input_data else 'F')
 
 def gen_data(encoder_steps, decoder_steps):
     random.seed = 42
@@ -85,8 +86,11 @@ def gen_data(encoder_steps, decoder_steps):
     import scipy.signal as spsig
 
     #fct = np.sin
-    fct = spsig.sawtooth
-    #fct = spsig.square
+    #fct = spsig.sawtooth
+    fct = spsig.square
+
+    def doublesin(t):
+        return 0.9 * np.sin(t) + 0.1*np.sin(10*t)
 
     def doublesquare(t):
         return 0.5*spsig.square(t,duty=0.75) - 0.5*spsig.square(2*t,duty=0.25)
@@ -110,8 +114,6 @@ def create_model(session,feed_forward, train_model, encoder_steps, decoder_steps
         print("Created model with fresh parameters.")
         session.run(tf.initialize_all_variables())
     return model
-
-
 
 def train():
   tf.reset_default_graph()
@@ -190,7 +192,6 @@ def train():
         step_time, loss = 0.0, 0.0
         if perplexity < 0.02 or model.learning_rate.eval() < 0.01:
             break
-
 
         # Run evals on development set and print their perplexity.
 
@@ -310,7 +311,7 @@ def self_test():
 
 def run_many():
 
-    rnn_size_range = [2,4,8,16,32]
+    rnn_size_range = [2,4,8,16,32,64]
     num_layers_range = [1,2,3]
     random_range = [True, False]
     batch_size_range = [16, 32, 64]
@@ -327,7 +328,7 @@ def run_many():
                         FLAGS.batch_size = batch_size
                         FLAGS.learning_rate = learning_rate
                         train()
-			decode()
+                        decode()
 
 def main(_):
   if FLAGS.run_many:
