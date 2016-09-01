@@ -6,12 +6,8 @@ import data_utils
 from tensorflow.python.ops import math_ops
 from tensorflow.python.ops import nn_ops
 
-
 class Seq2SeqModel(object):
 
-    #TODO Alex Thursday:
-    # Separate training bool and feed_forward_track bool
-    # Add warning for not traning, and feed_forward
     def __init__(self, parameters, feed_forward, train, encoder_steps, decoder_steps, batch_size,
                  rnn_size, num_layers,learning_rate,learning_rate_decay_factor, input_size, max_gradient_norm):
         #feed_forward: whether or not to use a loopback function and feed the last ouput to the next input during sequence generation
@@ -30,32 +26,34 @@ class Seq2SeqModel(object):
         self.learning_rate_decay_op = self.learning_rate.assign(
         self.learning_rate * learning_rate_decay_factor)
         self.global_step = tf.Variable(0, trainable=False)
+        if feed_forward and not train:
+            print "Warning, feeding the model future sequence data (feed_forward) is not recommended when the model is not training."
 
-        #as the rnn layers output values of size (layer width) and we need it to be the same size as the input
-        #output_projection is used to condense
-
+        #The output of the multiRNN is the size of rnn_size, and it needs to match the input size, or loopback makes no sense
+        #Here a single layer without activation function is used, but it can be any number of non RNN layers / functions
         w = tf.get_variable("proj_w", [self.rnn_size, self.input_size])
         b = tf.get_variable("proj_b", [self.input_size])
         output_projection = (w, b)
 
         #define layers here
         #input, linear RNN RNN linear etc
-
         single_cell = tf.nn.rnn_cell.BasicLSTMCell(self.rnn_size,state_is_tuple=True) #Default should be True, but TF 0.9 was throwing a warning, implying it was false
         cell = single_cell
         if self.num_layers > 1:
-          cell = tf.nn.rnn_cell.MultiRNNCell([single_cell] * self.num_layers,state_is_tuple=True) #Gah, the bug is here -- this defaults to False, and thus produces a warning....
+          cell = tf.nn.rnn_cell.MultiRNNCell([single_cell] * self.num_layers,state_is_tuple=True) #This defaults to False in TF0.9, and thus produces a warning....
 
         def simple_loop_function(prev, _):
             if output_projection is not None:
                 prev = nn_ops.xw_plus_b(
                         prev, output_projection[0], output_projection[1])
-            return prev #HACK An output projection should go here.
+            return prev
 
         from tensorflow.python.ops import variable_scope
         from tensorflow.python.framework import dtypes
         from tensorflow.python.ops import rnn
         from tensorflow.python.ops.seq2seq import rnn_decoder
+
+        #TODO move these functions to their own file.
         def basic_rnn_seq2seq_with_loop_function(
                 encoder_inputs, decoder_inputs, cell, dtype=dtypes.float32,loop_function=simple_loop_function,scope=None):
             """Basic RNN sequence-to-sequence model. Edited for a loopback function. Don't know why this isn't in the
@@ -73,26 +71,6 @@ class Seq2SeqModel(object):
                 loopback_function = None #feed correct input
             return basic_rnn_seq2seq_with_loop_function(encoder_inputs,decoder_inputs,cell,
                                                                       loop_function=loopback_function,dtype=dtype)
-            #basic_rnn_seq2seq returns rnn_decoder returns output, state
-            #there is no loss function here
-          # return tf.nn.seq2seq.embedding_attention_seq2seq(
-          #     encoder_inputs,
-          #     decoder_inputs,
-          #     cell,
-          #     num_encoder_symbols=source_vocab_size,
-          #     num_decoder_symbols=target_vocab_size,
-          #     embedding_size=size,
-          #     output_projection=output_projection,
-          #     feed_previous=do_decode,
-          #     dtype=dtype)
-
-        # Feeds for input - no longer a list of buckets, just one will do.
-            #NOTE Weights:
-                #This is a list of weights used to determine the most important (favourable?) output. It weights the loss function
-                #Used in sequence_loss_by_example.
-        #NOTE - DECODERS:
-            # They are the correct prediction path. Useful to correct errors in training
-            # Need to do more research in the architecture here
 
         # Feeds for inputs.
         self.encoder_inputs = []
@@ -121,10 +99,7 @@ class Seq2SeqModel(object):
         targets = [self.decoder_inputs[i + 1]
                     for i in xrange(len(self.decoder_inputs) - 1)]
         targets.append(self.decoder_inputs[len(self.decoder_inputs)-1])
-        # Alex - I don't know what the difference is between forward only and not. (refactored to generate)
-        # Training outputs and losses.
-        #seq2seq_f: encoder_inputs is a LIST of 2D tensors of size [batch x input_size]
-        #The comments on seq2seq seem to imply that the list should be timesteps long
+
         if train: #Training
             self.outputs, self.internal_states = seq2seq_f(self.encoder_inputs, self.decoder_inputs, feed_forward)
         else: #Testing
@@ -175,24 +150,24 @@ class Seq2SeqModel(object):
         # Get a random batch of encoder and decoder inputs from data,
         # pad them if needed, reverse encoder inputs and add GO to decoder.
         for _ in xrange(self.batch_size):
-          #encoder_input, decoder_input = random.choice()
-          index = random.randrange(encoder_data.shape[0])
-          encoder_input = encoder_data[index]
-          decoder_input = decoder_data[index]
+            #encoder_input, decoder_input = random.choice()
+            index = random.randrange(encoder_data.shape[0])
+            encoder_input = encoder_data[index]
+            decoder_input = decoder_data[index]
 
-          #encoder_data.size 2538 23 1
-          #decoder_data.size 2538 31 1
+            #encoder_data.size 2538 23 1
+            #decoder_data.size 2538 31 1
 
-          #Pick random int from encoder_data.size[0]
+            #Pick random int from encoder_data.size[0]
 
-          # Encoder inputs are padded and then reversed. ### ALEX ### -- HUH? Why reversed?
-          #Language works better in reverse -- dont ask
+            # Encoder inputs are padded and then reversed. ### ALEX ### -- HUH? Why reversed?
+            #Language works better in reverse -- dont ask
 
-          encoder_inputs.append(encoder_input)
+            encoder_inputs.append(encoder_input)
 
-          # Decoder inputs get an extra "GO" symbol
-          #The fact that decoder input is a ndarray and not a list breaks this operator (+) I have chosen this re-cast to better match the original code
-          decoder_inputs.append([[data_utils.GO_ID]*self.input_size] + decoder_input.tolist())
+            # Decoder inputs get an extra "GO" symbol
+            #The fact that decoder input is a ndarray and not a list breaks this operator (+) I have chosen this re-cast to better match the original code
+            decoder_inputs.append([[data_utils.GO_ID]*self.input_size] + decoder_input.tolist())
 
 
 
@@ -260,25 +235,14 @@ class Seq2SeqModel(object):
           ValueError: if length of encoder_inputs, decoder_inputs, or
             target_weights disagrees with bucket size for the specified bucket_id.
         """
-        # Check if the sizes match.
-        # encoder_size, decoder_size = self.buckets[bucket_id]
-        # if len(encoder_inputs) != encoder_size:
-        #   raise ValueError("Encoder length must be equal to the one in bucket,"
-        #                    " %d != %d." % (len(encoder_inputs), encoder_size))
-        # if len(decoder_inputs) != decoder_size:
-        #   raise ValueError("Decoder length must be equal to the one in bucket,"
-        #                    " %d != %d." % (len(decoder_inputs), decoder_size))
-        # if len(target_weights) != decoder_size:
-        #   raise ValueError("Weights length must be equal to the one in bucket,"
-        #                    " %d != %d." % (len(target_weights), decoder_size))
 
         # Input feed: encoder inputs, decoder inputs, target_weights, as provided.
         input_feed = {}
         for l in xrange(self.encoder_steps):
-          input_feed[self.encoder_inputs[l].name] = encoder_inputs[l]
+            input_feed[self.encoder_inputs[l].name] = encoder_inputs[l]
         for l in xrange(self.decoder_steps+1):
-          input_feed[self.decoder_inputs[l].name] = decoder_inputs[l]
-          input_feed[self.target_weights[l].name] = target_weights[l]
+            input_feed[self.decoder_inputs[l].name] = decoder_inputs[l]
+            input_feed[self.target_weights[l].name] = target_weights[l]
 
         # Since our targets are decoder inputs shifted by one, we need one more.
         last_target = self.decoder_inputs[self.decoder_steps].name
@@ -286,23 +250,24 @@ class Seq2SeqModel(object):
         input_feed[last_target] = np.array([np.zeros(self.input_size,dtype=np.float32)]*self.batch_size)
 
         # Output feed: depends on whether we do a backward step or not.
-        if train_model: #The format for this array broke. Proper format is a list of three tensors
-          output_feed = (self.updates +  # Update Op that does SGD. #This is the learning flag
+        if train_model:
+            output_feed = (self.updates +  # Update Op that does SGD. #This is the learning flag
                          self.gradient_norms +  # Gradient norm.
                          [self.losses])  # Loss for this batch.
         else:
-          output_feed = [self.losses]  # Loss for this batch.
-          for l in xrange(self.decoder_steps+1):  # Output logits.
-            output_feed.append(self.outputs[l])
+            #This whole ouput format is really bad form, it makes adding a tensorboard summary difficult as
+            #different variables (loss, output,etc) share the same name.
+            output_feed = [self.losses]  # Loss for this batch.
+            for l in xrange(self.decoder_steps+1):  # Output logits.
+                output_feed.append(self.outputs[l])
 
-        #This whole ouput format is really bad form, it makes adding a tensorboard summary difficult as
-        #different variables (loss, output,etc) share the same name.
-        outputs = session.run(output_feed, input_feed) #TODO Check decoder 31
+
+        outputs = session.run(output_feed, input_feed)
         if summary_writer is not None:
             summary_op = tf.merge_all_summaries()
             summary_str = session.run(summary_op,input_feed)
             summary_writer.add_summary(summary_str, self.global_step.eval())
         if train_model:
-          return outputs[1], outputs[2], None  # Gradient norm, loss, no outputs.
+            return outputs[1], outputs[2], None  # Gradient norm, loss, no outputs.
         else:
-          return None, outputs[0], outputs[1:]  # No gradient norm, loss, outputs.
+            return None, outputs[0], outputs[1:]  # No gradient norm, loss, outputs.
