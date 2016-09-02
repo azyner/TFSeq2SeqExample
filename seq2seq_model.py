@@ -7,8 +7,10 @@ from TF_mods import basic_rnn_seq2seq_with_loop_function
 
 class Seq2SeqModel(object):
 
-    def __init__(self, parameters, feed_forward, train, encoder_steps, decoder_steps, batch_size,
-                 rnn_size, num_layers,learning_rate,learning_rate_decay_factor, input_size, max_gradient_norm):
+    #TODO Refactor 'encoder' / 'decoder' inputs as 'observed' and 'future'
+
+    def __init__(self, parameters, feed_forward, train, num_observation_steps, num_prediction_steps, batch_size,
+                 rnn_size, num_layers, learning_rate, learning_rate_decay_factor, input_size, max_gradient_norm):
         # feed_forward: whether or not to use a loopback function and therefore feed the last ouput
         #                to the next input during sequence generation
         # train: train the model (or test)
@@ -20,8 +22,8 @@ class Seq2SeqModel(object):
 
         self.batch_size = batch_size
         self.input_size = input_size
-        self.encoder_steps = encoder_steps
-        self.decoder_steps = decoder_steps
+        self.encoder_steps = num_observation_steps
+        self.decoder_steps = num_prediction_steps
         self.learning_rate = tf.Variable(float(learning_rate), trainable=False)
         self.learning_rate_decay_op = self.learning_rate.assign(
         self.learning_rate * learning_rate_decay_factor)
@@ -64,14 +66,16 @@ class Seq2SeqModel(object):
 
         # Feeds for inputs.
         self.encoder_inputs = []
-        self.decoder_inputs = []
+        self.forward_inputs = []
         self.target_weights = []
+        self.target_inputs = []
         for i in xrange(self.encoder_steps):  # Last bucket is the biggest one.
             self.encoder_inputs.append(tf.placeholder(tf.float32, shape=[batch_size, self.input_size],
                                                     name="encoder{0}".format(i)))
         for i in xrange(self.decoder_steps + 1):
-            self.decoder_inputs.append(tf.placeholder(tf.float32, shape=[batch_size, self.input_size],
-                                                    name="decoder{0}".format(i)))
+            self.forward_inputs.append(tf.placeholder(tf.float32, shape=[batch_size, self.input_size],
+                                                      name="decoder{0}".format(i)))
+        for i in xrange(self.decoder_steps):
             self.target_weights.append(tf.placeholder(dtype, shape=[batch_size],
                                                     name="weight{0}".format(i)))
 
@@ -83,9 +87,14 @@ class Seq2SeqModel(object):
         # first decoder symbol instead of the <go> symbol.
         # I'm not sure I'm allowed to tie the unused output to the decoder feed, so I'm doing this for now.
 
-        targets = [self.decoder_inputs[i + 1]
-                    for i in xrange(len(self.decoder_inputs) - 1)]
-        targets.append(self.decoder_inputs[len(self.decoder_inputs)-1])
+        # SOLUTION
+        # Cut the last decoder input, but save it as the last target output
+        # Therefore the system remains (encoder_steps) long because it was buffed by 1 with GO and then the
+        # end was removed.
+        targets = [self.forward_inputs[i + 1]  #Skip first symbol (GO)
+                   for i in xrange(len(self.forward_inputs) - 1)]
+        #remove last decoder input, but it is kept as the last target output
+        self.decoder_inputs = [self.forward_inputs[i] for i in xrange(len(self.forward_inputs) - 1)]
 
         if train: #Training
             self.outputs, self.internal_states = seq2seq_f(self.encoder_inputs, self.decoder_inputs, feed_forward)
@@ -127,17 +136,17 @@ class Seq2SeqModel(object):
 
         tf.scalar_summary('Loss',self.losses)
 
-    def get_batch(self, encoder_data, decoder_data):
+    def get_batch(self, obervation_data, future_data):
         # This whole function just collects random pairs of encoder/decoder from data and adds them into a batch
         # This is where the target weight is created, it is zero for padding, 1 for everything else
-        batch_encoder_inputs, batch_decoder_inputs, batch_weights = [], [], []
+        batch_observation_inputs, batch_future_inputs, batch_weights = [], [], []
         encoder_inputs, decoder_inputs = [], []
 
         # Get a random batch of encoder and decoder inputs from data, add GO to decoder.
         for _ in xrange(self.batch_size):
-            index = random.randrange(encoder_data.shape[0])
-            encoder_input = encoder_data[index]
-            decoder_input = decoder_data[index]
+            index = random.randrange(obervation_data.shape[0])
+            encoder_input = obervation_data[index]
+            decoder_input = future_data[index]
             encoder_inputs.append(encoder_input)
 
             # Decoder inputs get an extra "GO" symbol
@@ -149,12 +158,12 @@ class Seq2SeqModel(object):
         # currently it is a list of length batch containing shape [timesteps input_size]
 
         for length_idx in xrange(self.encoder_steps):
-            batch_encoder_inputs.append(
+            batch_observation_inputs.append(
                     np.array([encoder_inputs[batch_idx][length_idx]
                     for batch_idx in xrange(self.batch_size)], dtype=np.float32))
 
         for length_idx in xrange(self.decoder_steps+1): # +1 for go symbol
-            batch_decoder_inputs.append(
+            batch_future_inputs.append(
                     np.array([decoder_inputs[batch_idx][length_idx]
                     for batch_idx in xrange(self.batch_size)], dtype=np.float32))
 
@@ -163,21 +172,22 @@ class Seq2SeqModel(object):
             # All other targets are equally important, so they are weighted as 1.0
             # Alex - This could be reason for the random decay I am observing
             batch_weight = np.ones(self.batch_size, dtype=np.float32)
-            for batch_idx in xrange(self.batch_size):
-                if length_idx == self.decoder_steps:
-                  batch_weight[batch_idx] = 0.0
+            # for batch_idx in xrange(self.batch_size):
+            #     if length_idx == self.decoder_steps:
+            #       batch_weight[batch_idx] = 0.0
             batch_weights.append(batch_weight)
 
-        # Batch_encoder_inputs is now list of len encoder_steps, shape batch, input_size. Similarly with decoder_inputs
-        return batch_encoder_inputs, batch_decoder_inputs, batch_weights
+        # Batch_observation_inputs is now list of len encoder_steps, shape batch, input_size.
+        #  Similarly with batch_future_inputs
+        return batch_observation_inputs, batch_future_inputs, batch_weights
 
-    def step(self, session, encoder_inputs, decoder_inputs, target_weights,
+    def step(self, session, observation_inputs, forward_inputs, target_weights,
              bucket_id, feed_forward, train_model, summary_writer=None):
         """Run a step of the model feeding the given inputs.
         Args:
           session: tensorflow session to use.
-          encoder_inputs: list of numpy int vectors to feed as encoder inputs.
-          decoder_inputs: list of numpy int vectors to feed as decoder inputs.
+          observation_inputs: list of numpy int vectors to feed as encoder inputs.
+          forward_inputs: list of numpy int vectors to feed as decoder inputs.
           target_weights: list of numpy float vectors to feed as target weights.
           bucket_id: which bucket of the model to use.
           train: whether to do the backward step or only forward.
@@ -192,13 +202,14 @@ class Seq2SeqModel(object):
         # Input feed: encoder inputs, decoder inputs, target_weights, as provided.
         input_feed = {}
         for l in xrange(self.encoder_steps):
-            input_feed[self.encoder_inputs[l].name] = encoder_inputs[l]
-        for l in xrange(self.decoder_steps+1):
-            input_feed[self.decoder_inputs[l].name] = decoder_inputs[l]
+            input_feed[self.encoder_inputs[l].name] = observation_inputs[l]
+        for l in xrange(self.decoder_steps + 1):
+            input_feed[self.forward_inputs[l].name] = forward_inputs[l]
+        for l in xrange(self.decoder_steps):
             input_feed[self.target_weights[l].name] = target_weights[l]
 
         # Since our targets are decoder inputs shifted by one, we need one more.
-        last_target = self.decoder_inputs[self.decoder_steps].name
+        last_target = self.forward_inputs[self.decoder_steps].name
         input_feed[last_target] = np.array([np.zeros(self.input_size,dtype=np.float32)]*self.batch_size)
 
         # Output feed: depends on whether we do a backward step or not.
@@ -210,7 +221,7 @@ class Seq2SeqModel(object):
             #This whole ouput format is really bad form, it makes adding a tensorboard summary difficult as
             #different variables (loss, output,etc) share the same name.
             output_feed = [self.losses]  # Loss for this batch.
-            for l in xrange(self.decoder_steps+1):  # Output logits.
+            for l in xrange(self.decoder_steps):  # Output logits.
                 output_feed.append(self.outputs[l])
 
 

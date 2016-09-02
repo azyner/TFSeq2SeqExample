@@ -56,7 +56,7 @@ def get_title_from_params():
             'bs' + str(FLAGS.batch_size) + '-'
             'lr' + str(FLAGS.learning_rate)+ '-'
             'ld' + str(FLAGS.learning_rate_decay_factor) +'-'
-            'ran' + ('T' if FLAGS.gen_random_input_data else 'F'))
+            'rand' + ('T' if FLAGS.gen_random_input_data else 'F'))
 
 def gen_data(encoder_steps, decoder_steps):
     random.seed = 42
@@ -234,9 +234,10 @@ def decode():
         output_gen_plt = []
         for l in range(len(output_logits)):
             output_gen_plt.append(np.average(output_logits[l][0]))
+        #Here we discard the GO symbol
         true_output_plot = []
-        for l in range(len(true_output)):
-            true_output_plot.append(true_output[l][0])
+        for l in range(len(true_output)-1):
+            true_output_plot.append(true_output[l+1][0])
 
         y_range = np.linspace(data_utils.data_linspace_tuple[0],
                               data_utils.data_linspace_tuple[1],
