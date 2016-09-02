@@ -3,7 +3,7 @@ import numpy as np
 import random
 import data_utils
 from tensorflow.python.ops import nn_ops
-
+from TF_mods import basic_rnn_seq2seq_with_loop_function
 
 class Seq2SeqModel(object):
 
@@ -53,21 +53,6 @@ class Seq2SeqModel(object):
                         prev, output_projection[0], output_projection[1])
             return prev
 
-        from tensorflow.python.ops import variable_scope
-        from tensorflow.python.framework import dtypes
-        from tensorflow.python.ops import rnn
-        from tensorflow.python.ops.seq2seq import rnn_decoder
-
-        #TODO move these functions to their own file.
-        def basic_rnn_seq2seq_with_loop_function(
-                encoder_inputs, decoder_inputs, cell, dtype=dtypes.float32,loop_function=simple_loop_function,scope=None):
-            """Basic RNN sequence-to-sequence model. Edited for a loopback function. Don't know why this isn't in the
-            current library
-            """
-            with variable_scope.variable_scope(scope or "basic_rnn_seq2seq_with_loop_function"):
-                _, enc_state = rnn.rnn(cell, encoder_inputs, dtype=dtype)
-                return rnn_decoder(decoder_inputs, enc_state, cell,loop_function=loop_function)
-
         # The seq2seq function: we use embedding for the input and attention.
         def seq2seq_f(encoder_inputs, decoder_inputs, feed_forward):
             if not feed_forward: #feed last output as next input
@@ -82,10 +67,10 @@ class Seq2SeqModel(object):
         self.decoder_inputs = []
         self.target_weights = []
         for i in xrange(self.encoder_steps):  # Last bucket is the biggest one.
-            self.encoder_inputs.append(tf.placeholder(tf.float32, shape=[batch_size, 1],
+            self.encoder_inputs.append(tf.placeholder(tf.float32, shape=[batch_size, self.input_size],
                                                     name="encoder{0}".format(i)))
         for i in xrange(self.decoder_steps + 1):
-            self.decoder_inputs.append(tf.placeholder(tf.float32, shape=[batch_size, 1],
+            self.decoder_inputs.append(tf.placeholder(tf.float32, shape=[batch_size, self.input_size],
                                                     name="decoder{0}".format(i)))
             self.target_weights.append(tf.placeholder(dtype, shape=[batch_size],
                                                     name="weight{0}".format(i)))
