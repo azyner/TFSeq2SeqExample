@@ -1,13 +1,5 @@
 
 # Special vocabulary symbols. Artifact from the vocab system. I don't know a good way to replace this in a linear system
-import numpy as np
-import pandas as pd
-
-_PAD = 0.0
-_GO = 999
-#_EOS = b"_EOS"
-#_UNK = b"_UNK"
-#_START_VOCAB = [_PAD, _GO, _EOS, _UNK]
 
 PAD_ID = 0.0
 GO_ID = -5.0
@@ -17,10 +9,6 @@ data_linspace_tuple = (0, 100, 10000)
 
 import numpy as np
 import pandas as pd
-import tensorflow as tf
-from tensorflow.python.framework import dtypes
-from tensorflow.contrib import learn
-
 
 import logging
 logging.basicConfig(level=logging.INFO)
