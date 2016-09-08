@@ -88,10 +88,9 @@ def gen_data(observation_steps, prediction_steps):
     return data_utils.generate_data(fct, np.linspace(0, 100, 10000), function_set,
                                     observation_steps, prediction_steps, seperate=False)
 
-def create_model(session, feed_forward, train_model, observation_steps, prediction_steps, batch_size, 
+def create_model(session, feed_future_data, train_model, observation_steps, prediction_steps, batch_size,
                  rnn_size, num_layers, learning_rate, learning_rate_decay_factor, input_size, max_gradient_norm):
-    parameters = None
-    model = Seq2SeqModel(parameters, feed_forward, train_model, observation_steps, prediction_steps, batch_size,
+    model = Seq2SeqModel(feed_future_data, train_model, observation_steps, prediction_steps, batch_size,
                          rnn_size, num_layers, learning_rate, learning_rate_decay_factor, input_size, max_gradient_norm)
     if not os.path.exists(FLAGS.train_dir):
         os.makedirs(FLAGS.train_dir)
@@ -124,10 +123,10 @@ def train():
 
         #Set for training
         train_model = True
-        feed_forward = False
+        feed_future_data = False
         input_size = 1 #TODO fix this with sizing the input
 
-        model = create_model(sess, feed_forward, train_model, past_steps, future_steps, FLAGS.batch_size,
+        model = create_model(sess, feed_future_data, train_model, past_steps, future_steps, FLAGS.batch_size,
                              FLAGS.rnn_size, FLAGS.num_layers,FLAGS.learning_rate,FLAGS.learning_rate_decay_factor, input_size, FLAGS.max_gradient_norm)
 
         train_writer=tf.train.SummaryWriter(os.path.join(FLAGS.logs_dir,'train'+get_title_from_params()),sess.graph)
@@ -152,11 +151,11 @@ def train():
             observations = past_sequences #Apply noise here if desired
 
             _, step_loss, _ = model.step(sess, observations, future_sequences,
-                                         target_weights, """bucket_id""", feed_forward, train_model)
+                                         target_weights, train_model)
             #Periodically, run without training for the summary logs
             if current_step % 20 == 0:
                 _, step_loss, _ = model.step(sess, observations, future_sequences,
-                                         target_weights, """bucket_id""", feed_forward, False,summary_writer=train_writer)
+                                         target_weights, False,summary_writer=train_writer)
 
             step_time += (time.time() - start_time) / FLAGS.steps_per_checkpoint
             loss += step_loss / FLAGS.steps_per_checkpoint
@@ -215,8 +214,7 @@ def predict():
         for i in range(future_steps):
             future_sequences[i+1][0] = 0
 
-        _, output_loss, output_prediction = model.step(sess,observations,future_sequences,target_weights,'''bucket_id''',
-                                                          feed_forward, train_model)
+        _, output_loss, output_prediction = model.step(sess,observations,future_sequences,target_weights, train_model)
 
         #re-format graph input
         input_plot = []
@@ -238,7 +236,7 @@ def predict():
         output_range = y_range[len(input_plot):len(input_plot)+len(output_prediction)]
         plt_title = "TFSeq2Seq" + "rnn_size " + str(FLAGS.rnn_size) + " n_layers " + str(FLAGS.num_layers)
 
-        if False: #Plot HTML bokeh
+        if True: #Plot HTML bokeh
             from bokeh.plotting import figure, output_file, show
             output_file("traces.html")
             p1 = figure(title=plt_title, x_axis_label='x', y_axis_label='y',
