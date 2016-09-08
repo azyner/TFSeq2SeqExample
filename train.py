@@ -16,9 +16,9 @@ tf.app.flags.DEFINE_float("learning_rate_decay_factor", 0.7,
                           "Learning rate decays by this much.")
 tf.app.flags.DEFINE_float("max_gradient_norm", 5.0,
                           "Clip gradients to this norm.")
-tf.app.flags.DEFINE_integer("batch_size", 32,
+tf.app.flags.DEFINE_integer("batch_size", 64,
                             "Batch size to use during training.")
-tf.app.flags.DEFINE_integer("rnn_size", 16, "Size of each model layer.")
+tf.app.flags.DEFINE_integer("rnn_size", 32, "Size of each model layer.")
 tf.app.flags.DEFINE_integer("num_layers", 3, "Number of layers in the model.")
 tf.app.flags.DEFINE_string("data_dir", "data", "Data directory")
 tf.app.flags.DEFINE_string("train_dir", "train", "Training directory.")
@@ -30,7 +30,7 @@ tf.app.flags.DEFINE_integer("steps_per_checkpoint", 200,
                             "How many training steps to do per checkpoint.")
 tf.app.flags.DEFINE_boolean("predict", False,
                             "Set to True to use the model to generate a sequence prediction.")
-tf.app.flags.DEFINE_boolean("run_many", True,
+tf.app.flags.DEFINE_boolean("run_many", False,
                             "Run a list of many jobs")
 tf.app.flags.DEFINE_boolean("self_test", False,
                             "Run a self-test if this is set to True.")
