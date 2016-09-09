@@ -68,6 +68,3 @@ The system can successfully learn on both sine and square waves of fixed frequen
 # Usage
 
 Run train.py. The system will train on a given square wave, and then generate an output graph.
-
-# Copyright / License
-Copyright: Alex Zyner (2016), License WTFPL, http://www.wtfpl.net/
