@@ -1,4 +1,4 @@
-# Linear Sequence to Sequence Example in TensorFlow #
+# Sequence to Sequence Example in TensorFlow #
 
 I wrote this example because I could not find any good examples of non-classification sequence to sequence (seq2seq) models written in TensorFlow. The primary example in TensorFlow focuses on text analysis. As such, most of the code is dealing with either vocabulary (embedding) or varying sentence lengths (bucketing) which can obfuscate the underlying tutorial with regards to sequencing. To simplify the structure of the model in this tutorial, a single value prediction model is used. 
 
